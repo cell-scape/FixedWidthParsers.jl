@@ -6,7 +6,7 @@ High-performance fixed-width file parser for Julia. Supports runtime and compile
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/your-org/FixedWidthParsers.jl")
+Pkg.add(url="https://github.com/cell-scape/FixedWidthParsers.jl")
 ```
 
 ## Quick Example
@@ -111,3 +111,4 @@ schema = load_schema("flights.json")
 ```
 
 See the [API Reference](@ref) for full documentation.
+
