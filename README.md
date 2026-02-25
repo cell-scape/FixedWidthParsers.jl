@@ -1,6 +1,6 @@
 # FixedWidthParsers.jl
 
-High-performance fixed-width file parser for Julia.
+Fixed-width file parser for Julia.
 
 ## Features
 
@@ -150,3 +150,4 @@ Build the full API reference locally:
 julia --project=docs docs/make.jl
 open docs/build/index.html
 ```
+
