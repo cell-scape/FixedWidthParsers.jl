@@ -1,6 +1,6 @@
 # FixedWidthParsers.jl
 
-High-performance fixed-width file parser for Julia. Supports runtime and compile-time schemas, columnar and row-oriented output, lazy iteration, parallel parsing, and the Tables.jl interface.
+Fixed-width file parser for Julia. Supports runtime and compile-time schemas, columnar and row-oriented output, lazy iteration, parallel parsing, and the Tables.jl interface.
 
 ## Installation
 
