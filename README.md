@@ -19,7 +19,7 @@ Fixed-width file parser for Julia.
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/your-org/FixedWidthParsers.jl")
+Pkg.add(url="https://github.com/cell-scape/FixedWidthParsers.jl")
 ```
 
 ## Quick Start
@@ -150,4 +150,5 @@ Build the full API reference locally:
 julia --project=docs docs/make.jl
 open docs/build/index.html
 ```
+
 
