@@ -65,3 +65,59 @@ using FixedWidthParsers: _parse_type_string
         rm(path)
     end
 end
+
+@testset "FWDateTime" begin
+    @testset "basic parsing with full format" begin
+        desc = FWDateTime("yyyy-mm-ddTHH:MM:SS")
+        buf = Vector{UInt8}("2026-03-17T14:30:00")
+        result = FixedWidthParsers.parse_field(desc, buf, 1, 19)
+        @test result == DateTime(2026, 3, 17, 14, 30, 0)
+    end
+
+    @testset "compact format" begin
+        desc = FWDateTime("yyyymmddHHMM")
+        buf = Vector{UInt8}("202603171430")
+        result = FixedWidthParsers.parse_field(desc, buf, 1, 12)
+        @test result == DateTime(2026, 3, 17, 14, 30)
+    end
+
+    @testset "zero-argument constructor defaults to yyyy-mm-ddTHH:MM:SS" begin
+        desc = FWDateTime()
+        @test desc.format_string == "yyyy-mm-ddTHH:MM:SS"
+    end
+
+    @testset "stores format_string" begin
+        desc = FWDateTime("yyyymmddHHMM")
+        @test desc.format_string == "yyyymmddHHMM"
+    end
+
+    @testset "default value" begin
+        desc = FWDateTime("yyyymmddHHMM"; default=DateTime(1))
+        @test desc.default == DateTime(1)
+    end
+
+    @testset "transform" begin
+        desc = FWDateTime("yyyymmddHHMM"; transform=identity)
+        @test desc.transform !== nothing
+    end
+
+    @testset "_parse_type_string round-trip" begin
+        desc = _parse_type_string("DateTime")
+        @test desc isa FWDateTime
+        @test desc.format_string == "yyyy-mm-ddTHH:MM:SS"
+        desc2 = _parse_type_string("DateTime(yyyymmddHHMM)")
+        @test desc2 isa FWDateTime
+        @test desc2.format_string == "yyyymmddHHMM"
+    end
+
+    @testset "integration with parse_file" begin
+        schema = FixedWidthSchema(:dt => (1:12, FWDateTime("yyyymmddHHMM")))
+        path = tempname()
+        open(path, "w") do io
+            write(io, "202603171430\n202603180900\n")
+        end
+        result = parse_file(path, schema)
+        @test result.dt == [DateTime(2026, 3, 17, 14, 30), DateTime(2026, 3, 18, 9, 0)]
+        rm(path)
+    end
+end

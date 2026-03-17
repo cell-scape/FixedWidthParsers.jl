@@ -242,6 +242,7 @@ _get_default(d::FWBool) = d.default
 _get_default(d::FWDate) = d.default
 _get_default(d::FWFixedPoint) = d.default
 _get_default(d::FWTime) = d.default
+_get_default(d::FWDateTime) = d.default
 _get_default(::Any) = nothing
 
 """
@@ -254,6 +255,7 @@ _get_transform(d::FWBool) = d.transform
 _get_transform(d::FWDate) = d.transform
 _get_transform(d::FWFixedPoint) = d.transform
 _get_transform(d::FWTime) = d.transform
+_get_transform(d::FWDateTime) = d.transform
 _get_transform(::Any) = nothing
 
 """Return `Any` when transform is set, else delegate to `_julia_type`."""
@@ -1174,6 +1176,7 @@ _julia_type(::FWFixedPoint) = Float64
 _julia_type(::FWSkip) = Nothing
 _julia_type(::FWBool) = Bool
 _julia_type(::FWTime) = Dates.Time
+_julia_type(::FWDateTime) = Dates.DateTime
 _julia_type(::Any) = Any
 
 # Width-aware version: picks optimal InlineString type

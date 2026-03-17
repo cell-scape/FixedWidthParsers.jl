@@ -11,7 +11,7 @@ include("materialization.jl")
 include("schema_io.jl")
 include("multi_record.jl")
 
-export FWString, FWInt, FWFloat, FWDate, FWTime, FWSkip, FWFixedPoint, FWBool, Skip
+export FWString, FWInt, FWFloat, FWDate, FWTime, FWDateTime, FWSkip, FWFixedPoint, FWBool, Skip
 export ParseError
 export parse_field
 export FixedWidthSchema

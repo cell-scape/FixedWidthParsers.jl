@@ -372,8 +372,15 @@ function _parse_type_string(s::AbstractString)
     s == "Float64" && return FWFloat()
     s == "Skip"    && return FWSkip()
     s == "Bool"    && return FWBool()
-    s == "Date"    && return FWDate("yyyymmdd")
-    s == "Time"    && return FWTime()
+    s == "Date"     && return FWDate("yyyymmdd")
+    s == "Time"     && return FWTime()
+    s == "DateTime" && return FWDateTime()
+
+    # DateTime(fmt)
+    m = match(r"^DateTime\((.+)\)$", s)
+    if m !== nothing
+        return FWDateTime(strip(m.captures[1]))
+    end
 
     # Time(fmt)
     m = match(r"^Time\((.+)\)$", s)
@@ -433,7 +440,8 @@ _type_to_descriptor(::Type{Float64}) = FWFloat()
 _type_to_descriptor(::Type{Date})    = FWDate("yyyymmdd")
 _type_to_descriptor(::Type{Skip})    = FWSkip()
 _type_to_descriptor(::Type{Bool})    = FWBool()
-_type_to_descriptor(::Type{Time})    = FWTime()
+_type_to_descriptor(::Type{Time})     = FWTime()
+_type_to_descriptor(::Type{DateTime}) = FWDateTime()
 
 # ---------------------------------------------------------------------------
 # @fixedwidth macro
@@ -558,6 +566,9 @@ macro fixedwidth(expr)
         elseif ftype === :Time ||
                (ftype isa Expr && ftype.head === :(.) && ftype.args[end] === QuoteNode(:Time))
             :(FixedWidthParsers.FWTime())
+        elseif ftype === :DateTime ||
+               (ftype isa Expr && ftype.head === :(.) && ftype.args[end] === QuoteNode(:DateTime))
+            :(FixedWidthParsers.FWDateTime())
         else
             # Generic fallback: call _type_to_descriptor at runtime
             :(FixedWidthParsers._type_to_descriptor($(esc(ftype))))
@@ -698,6 +709,15 @@ function _descriptor_string(d::FWTime)
     d.format_string != "HH:MM" && push!(params, "\"$(d.format_string)\"")
     d.default !== nothing && push!(params, "default=$(d.default)")
     base = isempty(params) ? "FWTime" : "FWTime($(join(params, ", ")))"
+    d.transform !== nothing && return base * "+transform"
+    return base
+end
+
+function _descriptor_string(d::FWDateTime)
+    params = String[]
+    d.format_string != "yyyy-mm-ddTHH:MM:SS" && push!(params, "\"$(d.format_string)\"")
+    d.default !== nothing && push!(params, "default=$(d.default)")
+    base = isempty(params) ? "FWDateTime" : "FWDateTime($(join(params, ", ")))"
     d.transform !== nothing && return base * "+transform"
     return base
 end
