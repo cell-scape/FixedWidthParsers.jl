@@ -50,9 +50,9 @@ Char digit keys get a `:type_` prefix (same as Int keys) since bare digit symbol
 
 #### Internal Representation
 
-All discriminator keys are normalized to their `String` representation at construction time: `'H'` → `"H"`, `1` → `"1"`, `"HDR"` → `"HDR"`. Matching is always done via `String` comparison against the bytes read from the discriminator range (current behavior). The original key type is not preserved internally — this keeps the implementation simple and the `Vector{Tuple{String, Symbol, FixedWidthSchema}}` storage unchanged.
+All discriminator keys are normalized to their `String` representation at construction time: `'H'` → `"H"`, `1` → `"1"`, `"HDR"` → `"HDR"`. Matching is always done via `String` comparison against the bytes read from the discriminator range. The original key type is not preserved internally — this keeps the implementation simple and the `Vector{Tuple{String, Symbol, FixedWidthSchema}}` storage unchanged.
 
-For `Int` keys specifically, the discriminator bytes are stripped of leading/trailing spaces before comparison. Leading zeros are significant: key `1` matches `"1"` but not `"01"`. If users need leading-zero tolerance, they should use `String` keys (e.g., `"01" => schema`).
+Discriminator bytes are unconditionally stripped of leading/trailing spaces before comparison (safe for all key types — trimming `" HDR "` to `"HDR"` is harmless). Leading zeros are significant: key `1` matches `"1"` but not `"01"`. If users need leading-zero tolerance, they should use `String` keys (e.g., `"01" => schema`).
 
 #### Validation
 
@@ -217,7 +217,7 @@ carrier,2,3,String
 #### Behavior
 
 - Format column header absent → works exactly as today.
-- Format column header present but row value empty → uses the type's default format (e.g., `"yyyymmdd"` for `Date`, `"HH:MM:SS"` for `Time`, `"yyyy-mm-ddTHH:MM:SS"` for `DateTime`).
+- Format column header present but row value empty → uses the type's default format (e.g., `"yyyymmdd"` for `Date`, `"HH:MM"` for `Time`, `"yyyy-mm-ddTHH:MM:SS"` for `DateTime`).
 - If both the type string contains a format (e.g., `Date(ddMMMyy)`) **and** the format column has a value → format column wins.
 - Format provided for a type that doesn't use formats (like `String`, `Int`) → silently ignored.
 
