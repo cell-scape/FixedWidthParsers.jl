@@ -171,7 +171,20 @@ FixedWidthSchema(:a => (1:2, FWString()), :b => (3:6, FWInt()))
 FixedWidthSchema(:a => (1, 2, FWString()), :b => (3, 4, FWInt()))
 ```
 """
-function FixedWidthSchema(pairs::Pair{Symbol}...; record_width::Union{Int,Nothing}=nothing)
+function FixedWidthSchema(raw_pairs::Pair...; record_width::Union{Int,Nothing}=nothing)
+    # Normalize keys to Symbol
+    pairs = map(raw_pairs) do p
+        key = p.first
+        if key isa Symbol
+            key
+        elseif key isa AbstractString
+            Symbol(key)
+        else
+            throw(ArgumentError(
+                "field name must be a Symbol or String, got $(typeof(key)): $(repr(key))"
+            ))
+        end => p.second
+    end
     isempty(pairs) && return FixedWidthSchema(FieldSpec[], 0)
 
     first_val = pairs[1].second

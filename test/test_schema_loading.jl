@@ -145,6 +145,20 @@ using FixedWidthParsers: _parse_type_string
         )
     end
 
+    @testset "String field names auto-convert to Symbol" begin
+        using FixedWidthParsers: record_width
+        s = FixedWidthSchema("carrier" => (2, FWString()), "fnum" => (4, FWInt()))
+        @test record_width(s) == 6
+        @test s._output_names == (:carrier, :fnum)
+    end
+
+    @testset "String field names in range mode" begin
+        using FixedWidthParsers: record_width
+        s = FixedWidthSchema("carrier" => (1:2, FWString()), "fnum" => (3:6, FWInt()))
+        @test record_width(s) == 6
+        @test s._output_names == (:carrier, :fnum)
+    end
+
     @testset "load_schema CSV" begin
         using FixedWidthParsers: record_width, field_names
 
