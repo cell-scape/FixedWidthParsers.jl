@@ -158,6 +158,30 @@ FWDate(
 ) = FWDate(Dates.DateFormat(fmt), String(fmt), default, transform)
 
 """
+    FWTime(format::String; default::Union{Dates.Time, Nothing} = nothing)
+
+Field descriptor: parse a `Dates.Time` using the given `DateFormat` pattern
+string (e.g. `"HH:MM"`, `"HHMM"`).
+
+Note: In Julia's `DateFormat`, uppercase `M` = minute, lowercase `m` = month.
+
+When `default` is set and `on_error=:default`, a blank field returns `default`
+instead of throwing a `ParseError`.
+"""
+struct FWTime
+    format::Dates.DateFormat
+    format_string::String
+    default::Union{Dates.Time, Nothing}
+    transform::Union{Function, Nothing}
+end
+FWTime(
+    fmt::AbstractString;
+    default::Union{Dates.Time, Nothing}=nothing,
+    transform::Union{Function, Nothing}=nothing,
+) = FWTime(Dates.DateFormat(fmt), String(fmt), default, transform)
+FWTime() = FWTime("HH:MM")
+
+"""
     FWFixedPoint(decimals::Int; default::Union{Float64, Nothing} = nothing)
 
 Field descriptor: parse an implied-decimal fixed-point number.
@@ -345,6 +369,16 @@ Parse a `Date` value from ASCII bytes using the `DateFormat` stored in `fw`.
 @inline function parse_field(fw::FWDate, buf::AbstractVector{UInt8}, pos::Int, len::Int)
     sv = StringView(@view buf[pos:pos+len-1])
     return Dates.Date(String(sv), fw.format)
+end
+
+"""
+    parse_field(fw::FWTime, buf, pos, len) → Dates.Time
+
+Parse a `Time` value from ASCII bytes using the `DateFormat` stored in `fw`.
+"""
+@inline function parse_field(fw::FWTime, buf::AbstractVector{UInt8}, pos::Int, len::Int)
+    sv = StringView(@view buf[pos:pos+len-1])
+    return Dates.Time(String(sv), fw.format)
 end
 
 """

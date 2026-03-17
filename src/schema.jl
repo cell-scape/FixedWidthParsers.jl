@@ -373,6 +373,13 @@ function _parse_type_string(s::AbstractString)
     s == "Skip"    && return FWSkip()
     s == "Bool"    && return FWBool()
     s == "Date"    && return FWDate("yyyymmdd")
+    s == "Time"    && return FWTime()
+
+    # Time(fmt)
+    m = match(r"^Time\((.+)\)$", s)
+    if m !== nothing
+        return FWTime(strip(m.captures[1]))
+    end
 
     # Date(fmt)
     m = match(r"^Date\((.+)\)$", s)
@@ -426,6 +433,7 @@ _type_to_descriptor(::Type{Float64}) = FWFloat()
 _type_to_descriptor(::Type{Date})    = FWDate("yyyymmdd")
 _type_to_descriptor(::Type{Skip})    = FWSkip()
 _type_to_descriptor(::Type{Bool})    = FWBool()
+_type_to_descriptor(::Type{Time})    = FWTime()
 
 # ---------------------------------------------------------------------------
 # @fixedwidth macro
@@ -547,6 +555,9 @@ macro fixedwidth(expr)
             :(FixedWidthParsers.FWDate("yyyymmdd"))
         elseif ftype === :Bool
             :(FixedWidthParsers.FWBool())
+        elseif ftype === :Time ||
+               (ftype isa Expr && ftype.head === :(.) && ftype.args[end] === QuoteNode(:Time))
+            :(FixedWidthParsers.FWTime())
         else
             # Generic fallback: call _type_to_descriptor at runtime
             :(FixedWidthParsers._type_to_descriptor($(esc(ftype))))
@@ -678,6 +689,15 @@ function _descriptor_string(d::FWDate)
     d.format_string != "yyyymmdd" && push!(params, "\"$(d.format_string)\"")
     d.default !== nothing && push!(params, "default=$(d.default)")
     base = isempty(params) ? "FWDate" : "FWDate($(join(params, ", ")))"
+    d.transform !== nothing && return base * "+transform"
+    return base
+end
+
+function _descriptor_string(d::FWTime)
+    params = String[]
+    d.format_string != "HH:MM" && push!(params, "\"$(d.format_string)\"")
+    d.default !== nothing && push!(params, "default=$(d.default)")
+    base = isempty(params) ? "FWTime" : "FWTime($(join(params, ", ")))"
     d.transform !== nothing && return base * "+transform"
     return base
 end
