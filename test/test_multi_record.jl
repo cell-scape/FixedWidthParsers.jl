@@ -143,4 +143,105 @@ using FixedWidthParsers
         rm(path)
     end
 
+    @testset "Char discriminator keys" begin
+        header_schema = FixedWidthSchema(
+            :rec_type => (1, FWString()),
+            :title    => (9, FWString()),
+        )
+        detail_schema = FixedWidthSchema(
+            :rec_type => (1, FWString()),
+            :value    => (9, FWInt()),
+        )
+
+        ms = MultiRecordSchema(1:1, 'H' => header_schema, 'D' => detail_schema)
+        path = tempname()
+        open(path, "w") do io
+            write(io, "HTestFile \n")
+            write(io, "D       42\n")
+        end
+        result = parse_file(path, ms)
+        @test result[:H].title == ["TestFile"]
+        @test result[:D].value == [42]
+        rm(path)
+    end
+
+    @testset "Char digit keys get :type_ prefix" begin
+        schema = FixedWidthSchema(:rec_type => (1, FWString()), :val => (4, FWInt()))
+        ms = MultiRecordSchema(1:1, '1' => schema, '2' => schema)
+        path = tempname()
+        open(path, "w") do io
+            write(io, "1  42\n2  99\n")
+        end
+        result = parse_file(path, ms)
+        @test haskey(result, :type_1)
+        @test haskey(result, :type_2)
+        @test result[:type_1].val == [42]
+        @test result[:type_2].val == [99]
+        rm(path)
+    end
+
+    @testset "Int discriminator keys" begin
+        schema = FixedWidthSchema(:rec_type => (1, FWString()), :val => (4, FWInt()))
+        ms = MultiRecordSchema(1:1, 1 => schema, 2 => schema)
+        path = tempname()
+        open(path, "w") do io
+            write(io, "1  42\n2  99\n")
+        end
+        result = parse_file(path, ms)
+        @test haskey(result, :type_1)
+        @test haskey(result, :type_2)
+        @test result[:type_1].val == [42]
+        rm(path)
+    end
+
+    @testset "Int position shorthand" begin
+        schema_h = FixedWidthSchema(:rec_type => (1, FWString()), :title => (4, FWString()))
+        schema_d = FixedWidthSchema(:rec_type => (1, FWString()), :value => (4, FWInt()))
+        ms = MultiRecordSchema(1, 'H' => schema_h, 'D' => schema_d)
+        path = tempname()
+        open(path, "w") do io
+            write(io, "HTest\nD  42\n")
+        end
+        result = parse_file(path, ms)
+        @test result[:H].title == ["Test"]
+        @test result[:D].value == [42]
+        rm(path)
+    end
+
+    @testset "unconditional discriminator trimming" begin
+        schema = FixedWidthSchema(:rec_type => (2, FWString()), :val => (3, FWInt()))
+        ms = MultiRecordSchema(1:2, "H" => schema, "D" => schema)
+        path = tempname()
+        open(path, "w") do io
+            write(io, "H  42\nD  99\n")
+        end
+        result = parse_file(path, ms)
+        @test result[:H].val == [42]
+        @test result[:D].val == [99]
+        rm(path)
+    end
+
+    @testset "padded String keys are trimmed at construction" begin
+        schema = FixedWidthSchema(:rec_type => (2, FWString()), :val => (3, FWInt()))
+        ms = MultiRecordSchema(1:2, "H " => schema, "D " => schema)
+        path = tempname()
+        open(path, "w") do io
+            write(io, "H  42\nD  99\n")
+        end
+        result = parse_file(path, ms)
+        @test result[:H].val == [42]
+        @test result[:D].val == [99]
+        rm(path)
+    end
+
+    @testset "Char key requires single-byte discriminator" begin
+        schema = FixedWidthSchema(:val => (3, FWString()))
+        @test_throws ArgumentError MultiRecordSchema(1:2, 'H' => schema, 'D' => schema)
+    end
+
+    @testset "mixed key types are a MethodError" begin
+        schema = FixedWidthSchema(:val => (3, FWString()))
+        @test_throws MethodError MultiRecordSchema(1:1, 'H' => schema, "D" => schema)
+    end
+
 end

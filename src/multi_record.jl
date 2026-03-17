@@ -43,6 +43,47 @@ struct MultiRecordSchema
     record_width::Int
 end
 
+# --- Label derivation helpers ---
+
+_discriminator_label(key::AbstractString) = Symbol(key)
+_discriminator_label(key::Char) = isdigit(key) ? Symbol("type_", key) : Symbol(key)
+_discriminator_label(key::Int) = Symbol("type_", key)
+
+# --- Shared builder ---
+
+function _build_multi_record_schema(
+    discriminator::UnitRange{Int},
+    string_pairs::Vector{Pair{String, FixedWidthSchema}},
+    labels::Vector{Symbol},
+    record_width::Union{Int, Nothing},
+)
+    length(discriminator) < 1 &&
+        throw(ArgumentError("discriminator range must not be empty"))
+    isempty(string_pairs) &&
+        throw(ArgumentError("at least one discriminator => schema pair is required"))
+
+    # Trim keys unconditionally (matches trimming on the file-read side)
+    trimmed_pairs = [strip(k) => v for (k, v) in string_pairs]
+
+    vals = [p.first for p in trimmed_pairs]
+    length(unique(vals)) != length(vals) &&
+        throw(ArgumentError("duplicate discriminator values: $(vals)"))
+
+    schemas = Tuple{String, Symbol, FixedWidthSchema}[]
+    max_width = 0
+    for (i, (disc_val, sch)) in enumerate(trimmed_pairs)
+        push!(schemas, (disc_val, labels[i], sch))
+        max_width = max(max_width, FixedWidthParsers.record_width(sch))
+    end
+
+    rw = record_width !== nothing ? record_width : max_width
+    if rw < max_width
+        throw(ArgumentError("record_width=$rw is less than the widest schema ($max_width)"))
+    end
+
+    return MultiRecordSchema(discriminator, schemas, rw)
+end
+
 """
     MultiRecordSchema(discriminator, pairs...; record_width=nothing)
 
@@ -77,38 +118,73 @@ ms = MultiRecordSchema(
 ```
 """
 function MultiRecordSchema(
+    discriminator::UnitRange{Int};
+    record_width::Union{Int, Nothing}=nothing,
+)
+    throw(ArgumentError("at least one discriminator => schema pair is required"))
+end
+
+function MultiRecordSchema(
     discriminator::UnitRange{Int},
     pairs::Pair{String, FixedWidthSchema}...;
     record_width::Union{Int, Nothing}=nothing,
 )
-    length(discriminator) < 1 &&
-        throw(ArgumentError("discriminator range must not be empty"))
-    isempty(pairs) &&
-        throw(ArgumentError("at least one discriminator => schema pair is required"))
+    string_pairs = Pair{String, FixedWidthSchema}[k => v for (k, v) in pairs]
+    labels = [_discriminator_label(strip(k)) for (k, _) in pairs]
+    _build_multi_record_schema(discriminator, string_pairs, labels, record_width)
+end
 
-    # Check for duplicate discriminator values
-    vals = [p.first for p in pairs]
-    length(unique(vals)) != length(vals) &&
-        throw(ArgumentError("duplicate discriminator values: $(vals)"))
+function MultiRecordSchema(
+    discriminator::UnitRange{Int},
+    pairs::Pair{Char, FixedWidthSchema}...;
+    record_width::Union{Int, Nothing}=nothing,
+)
+    length(discriminator) != 1 &&
+        throw(ArgumentError("Char discriminator keys require a single-byte range, got $discriminator"))
+    string_pairs = Pair{String, FixedWidthSchema}[string(k) => v for (k, v) in pairs]
+    labels = [_discriminator_label(k) for (k, _) in pairs]
+    _build_multi_record_schema(discriminator, string_pairs, labels, record_width)
+end
 
-    schemas = Tuple{String, Symbol, FixedWidthSchema}[]
-    max_width = 0
-    for (disc_val, sch) in pairs
-        label = Symbol(disc_val)
-        push!(schemas, (disc_val, label, sch))
-        max_width = max(max_width, FixedWidthParsers.record_width(sch))
-    end
+function MultiRecordSchema(
+    discriminator::UnitRange{Int},
+    pairs::Pair{Int, FixedWidthSchema}...;
+    record_width::Union{Int, Nothing}=nothing,
+)
+    string_pairs = Pair{String, FixedWidthSchema}[string(k) => v for (k, v) in pairs]
+    labels = [_discriminator_label(k) for (k, _) in pairs]
+    _build_multi_record_schema(discriminator, string_pairs, labels, record_width)
+end
 
-    rw = record_width !== nothing ? record_width : max_width
-    if rw < max_width
-        throw(
-            ArgumentError(
-                "record_width=$rw is less than the widest schema ($max_width)",
-            ),
-        )
-    end
+function MultiRecordSchema(
+    position::Int;
+    record_width::Union{Int, Nothing}=nothing,
+)
+    throw(ArgumentError("at least one discriminator => schema pair is required"))
+end
 
-    return MultiRecordSchema(discriminator, schemas, rw)
+function MultiRecordSchema(
+    position::Int,
+    pairs::Pair{Char, FixedWidthSchema}...;
+    record_width::Union{Int, Nothing}=nothing,
+)
+    return MultiRecordSchema(position:position, pairs...; record_width=record_width)
+end
+
+function MultiRecordSchema(
+    position::Int,
+    pairs::Pair{Int, FixedWidthSchema}...;
+    record_width::Union{Int, Nothing}=nothing,
+)
+    return MultiRecordSchema(position:position, pairs...; record_width=record_width)
+end
+
+function MultiRecordSchema(
+    position::Int,
+    pairs::Pair{String, FixedWidthSchema}...;
+    record_width::Union{Int, Nothing}=nothing,
+)
+    return MultiRecordSchema(position:position, pairs...; record_width=record_width)
 end
 
 # ---------------------------------------------------------------------------
@@ -187,7 +263,7 @@ function parse_file(
         for rec_idx in valid_indices
             rec_pos = record_offset(src, rec_idx)
             field_pos = rec_pos + disc_offset - 1
-            disc_bytes = String(copy(buf[field_pos:(field_pos + disc_len - 1)]))
+            disc_bytes = strip(String(copy(buf[field_pos:(field_pos + disc_len - 1)])))
             group_idx = get(disc_lookup, disc_bytes, 0)
             if group_idx == 0
                 throw(
@@ -326,7 +402,7 @@ function Base.iterate(iter::MultiRecordIterator, state::Int=1)
     disc_offset = first(iter.ms.discriminator)
     disc_len = length(iter.ms.discriminator)
     field_pos = rec_pos + disc_offset - 1
-    disc_bytes = String(copy(buf[field_pos:(field_pos + disc_len - 1)]))
+    disc_bytes = strip(String(copy(buf[field_pos:(field_pos + disc_len - 1)])))
 
     # Find matching schema
     for (disc_val, label, sch) in iter.ms.schemas
