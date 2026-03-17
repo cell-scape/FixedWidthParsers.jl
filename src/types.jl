@@ -462,3 +462,58 @@ Parse a boolean by comparing stripped field bytes against true_val/false_val.
     raw = String(copy(buf[pos:pos+len-1]))
     throw(ArgumentError("cannot parse Bool from \"$(strip(raw))\": expected \"$tv\" or \"$fv\""))
 end
+
+"""
+    FWCustom(return_type, parse_fn; raw=false, default=nothing, transform=nothing)
+
+Field descriptor: parse a field using a user-provided function.
+
+In string mode (default, `raw=false`), the library extracts the field bytes as
+a `String` and passes it to `parse_fn(str)`.
+
+In byte mode (`raw=true`), the library passes the raw buffer:
+`parse_fn(buf, pos, len)`.
+
+The struct is parameterized as `FWCustom{F,D}` so Julia can specialize
+`parse_field` on the concrete function type in hot loops.
+
+# Examples
+```julia
+# String mode
+FWCustom(Int, s -> length(strip(s)))
+
+# Byte mode
+FWCustom(Float64, (buf, pos, len) -> my_parser(buf, pos, len); raw=true)
+```
+"""
+struct FWCustom{F, D}
+    return_type::Type
+    parse_fn::F
+    raw::Bool
+    default::D
+    transform::Union{Function, Nothing}
+end
+function FWCustom(
+    return_type::Type,
+    parse_fn::F;
+    raw::Bool=false,
+    default::D=nothing,
+    transform::Union{Function, Nothing}=nothing,
+) where {F, D}
+    return FWCustom{F, D}(return_type, parse_fn, raw, default, transform)
+end
+
+"""
+    parse_field(fw::FWCustom, buf, pos, len) → value
+
+Parse using a user-provided function. String mode extracts a String;
+byte mode passes raw buffer access.
+"""
+@inline function parse_field(fw::FWCustom, buf::AbstractVector{UInt8}, pos::Int, len::Int)
+    if fw.raw
+        return fw.parse_fn(buf, pos, len)
+    else
+        s = String(copy(buf[pos:pos+len-1]))
+        return fw.parse_fn(s)
+    end
+end

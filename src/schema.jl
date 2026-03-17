@@ -722,6 +722,14 @@ function _descriptor_string(d::FWDateTime)
     return base
 end
 
+function _descriptor_string(d::FWCustom)
+    mode = d.raw ? "raw" : "string"
+    base = "FWCustom($(d.return_type), $mode)"
+    d.default !== nothing && (base *= ", default=$(repr(d.default))")
+    d.transform !== nothing && (base *= "+transform")
+    return base
+end
+
 function _descriptor_string(d::FWFixedPoint)
     params = ["$(d.decimals)"]
     d.default !== nothing && push!(params, "default=$(d.default)")

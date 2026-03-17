@@ -27,4 +27,5 @@ using StructArrays
     include("test_multi_record.jl")
     include("test_generated.jl")
     include("test_time_datetime.jl")
+    include("test_custom_field.jl")
 end
