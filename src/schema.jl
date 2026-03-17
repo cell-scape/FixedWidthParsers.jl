@@ -422,6 +422,40 @@ function _parse_type_string(s::AbstractString)
     throw(ArgumentError("unknown type string \"$s\""))
 end
 
+"""
+    _parse_type_string(type_str, format_str) → descriptor
+
+Map a type name string to a field-type descriptor, optionally overriding the
+format with `format_str`. The format column takes precedence over any inline
+format in the type string (e.g., `Date(yyyymmdd)`).
+"""
+function _parse_type_string(type_str::AbstractString, format_str::AbstractString)
+    type_str = strip(type_str)
+    format_str = strip(format_str)
+
+    # If no format override, delegate to existing single-arg form
+    isempty(format_str) && return _parse_type_string(type_str)
+
+    # Extract base type name (strip parenthesized params)
+    base_type = type_str
+    m = match(r"^(\w+)\(", type_str)
+    if m !== nothing
+        base_type = m.captures[1]
+    end
+
+    # Apply format override for Date/Time/DateTime types
+    if base_type == "Date"
+        return FWDate(format_str)
+    elseif base_type == "Time"
+        return FWTime(format_str)
+    elseif base_type == "DateTime"
+        return FWDateTime(format_str)
+    end
+
+    # For non-date types, ignore format_str and delegate
+    return _parse_type_string(type_str)
+end
+
 # ---------------------------------------------------------------------------
 # schema() generic — overridden per-type by @fixedwidth
 # ---------------------------------------------------------------------------

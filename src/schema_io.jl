@@ -66,6 +66,10 @@ function _load_schema_csv(path::AbstractString; record_width::Union{Int,Nothing}
 
     # Column indices
     idx = Dict(col => findfirst(==(col), header) for col in required)
+    has_format = :format in header
+    if has_format
+        idx[:format] = findfirst(==(:format), header)
+    end
 
     # Parse data rows
     pairs = Pair{Symbol,Tuple{UnitRange{Int},Any}}[]
@@ -74,7 +78,14 @@ function _load_schema_csv(path::AbstractString; record_width::Union{Int,Nothing}
         name = Symbol(parts[idx[:name]])
         start_byte = parse(Int, parts[idx[:start]])
         end_byte = parse(Int, parts[idx[:end]])
-        type_desc = _parse_type_string(parts[idx[:type]])
+
+        if has_format && idx[:format] <= length(parts)
+            format_str = parts[idx[:format]]
+            type_desc = _parse_type_string(parts[idx[:type]], format_str)
+        else
+            type_desc = _parse_type_string(parts[idx[:type]])
+        end
+
         push!(pairs, name => (start_byte:end_byte, type_desc))
     end
 
@@ -101,7 +112,8 @@ function _load_schema_toml(path::AbstractString; record_width::Union{Int,Nothing
         name = Symbol(fd["name"])
         start_byte = fd["start"]::Int
         end_byte = fd["end"]::Int
-        type_desc = _parse_type_string(fd["type"])
+        format_str = get(fd, "format", "")
+        type_desc = _parse_type_string(fd["type"], format_str)
         push!(pairs, name => (start_byte:end_byte, type_desc))
     end
 

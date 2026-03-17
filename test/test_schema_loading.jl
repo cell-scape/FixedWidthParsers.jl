@@ -337,6 +337,132 @@ using FixedWidthParsers: _parse_type_string
         end
     end
 
+    @testset "_parse_type_string with format override" begin
+        using FixedWidthParsers: _parse_type_string
+
+        @testset "Date with format override" begin
+            desc = _parse_type_string("Date", "ddMMMyy")
+            @test desc isa FWDate
+            @test desc.format_string == "ddMMMyy"
+        end
+
+        @testset "Date(inline) overridden by format column" begin
+            desc = _parse_type_string("Date(yyyymmdd)", "ddMMMyy")
+            @test desc.format_string == "ddMMMyy"
+        end
+
+        @testset "Time with format" begin
+            desc = _parse_type_string("Time", "HHMM")
+            @test desc isa FWTime
+            @test desc.format_string == "HHMM"
+        end
+
+        @testset "DateTime with format" begin
+            desc = _parse_type_string("DateTime", "yyyymmddHHMM")
+            @test desc isa FWDateTime
+            @test desc.format_string == "yyyymmddHHMM"
+        end
+
+        @testset "empty format falls through to default" begin
+            desc = _parse_type_string("Date", "")
+            @test desc isa FWDate
+            @test desc.format_string == "yyyymmdd"
+        end
+
+        @testset "format on non-date type is ignored" begin
+            desc = _parse_type_string("Int", "HHMM")
+            @test desc isa FWInt
+        end
+
+        @testset "empty format for Time falls through to default" begin
+            desc = _parse_type_string("Time", "")
+            @test desc isa FWTime
+            @test desc.format_string == "HH:MM"
+        end
+
+        @testset "empty format for DateTime falls through to default" begin
+            desc = _parse_type_string("DateTime", "")
+            @test desc isa FWDateTime
+            @test desc.format_string == "yyyy-mm-ddTHH:MM:SS"
+        end
+    end
+
+    @testset "CSV with format column" begin
+        using FixedWidthParsers: record_width
+
+        @testset "format column present" begin
+            path = tempname() * ".csv"
+            open(path, "w") do io
+                println(io, "name,start,end,type,format")
+                println(io, "carrier,1,2,String,")
+                println(io, "dep_date,3,9,Date,ddMMMyy")
+                println(io, "dep_time,10,13,Time,HHMM")
+            end
+            s = load_schema(path)
+            @test s.fields[1].type isa FWString
+            @test s.fields[2].type isa FWDate
+            @test s.fields[2].type.format_string == "ddMMMyy"
+            @test s.fields[3].type isa FWTime
+            @test s.fields[3].type.format_string == "HHMM"
+            rm(path)
+        end
+
+        @testset "format column absent still works" begin
+            path = tempname() * ".csv"
+            open(path, "w") do io
+                println(io, "name,start,end,type")
+                println(io, "carrier,1,2,String")
+            end
+            s = load_schema(path)
+            @test s.fields[1].type isa FWString
+            rm(path)
+        end
+
+        @testset "format column present but empty uses default" begin
+            path = tempname() * ".csv"
+            open(path, "w") do io
+                println(io, "name,start,end,type,format")
+                println(io, "dep_date,1,8,Date,")
+            end
+            s = load_schema(path)
+            @test s.fields[1].type isa FWDate
+            @test s.fields[1].type.format_string == "yyyymmdd"
+            rm(path)
+        end
+    end
+
+    @testset "TOML with format key" begin
+        @testset "format key present" begin
+            path = tempname() * ".toml"
+            open(path, "w") do io
+                println(io, "[[fields]]")
+                println(io, "name = \"dep_date\"")
+                println(io, "start = 1")
+                println(io, "end = 8")
+                println(io, "type = \"Date\"")
+                println(io, "format = \"ddMMMyy\"")
+            end
+            s = load_schema(path)
+            @test s.fields[1].type isa FWDate
+            @test s.fields[1].type.format_string == "ddMMMyy"
+            rm(path)
+        end
+
+        @testset "format key absent uses default" begin
+            path = tempname() * ".toml"
+            open(path, "w") do io
+                println(io, "[[fields]]")
+                println(io, "name = \"dep_date\"")
+                println(io, "start = 1")
+                println(io, "end = 8")
+                println(io, "type = \"Date\"")
+            end
+            s = load_schema(path)
+            @test s.fields[1].type.format_string == "yyyymmdd"
+            rm(path)
+        end
+    end
+
     @testset "Round-trip: load schema → parse file" begin
         using FixedWidthParsers: record_width
 
