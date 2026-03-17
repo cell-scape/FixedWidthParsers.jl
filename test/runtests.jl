@@ -28,4 +28,5 @@ using StructArrays
     include("test_generated.jl")
     include("test_time_datetime.jl")
     include("test_custom_field.jl")
+    include("test_multi_schema_loading.jl")
 end

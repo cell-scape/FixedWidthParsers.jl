@@ -124,3 +124,88 @@ end
 
 function _load_schema_json end
 function _load_schema_json(path; record_width) end
+
+# ---------------------------------------------------------------------------
+# Multi-file load_schema → MultiRecordSchema
+# ---------------------------------------------------------------------------
+
+"""
+    load_schema(path1, path2, paths...; discriminator=1:1, record_width=nothing) → MultiRecordSchema
+
+Load multiple schema files and combine into a `MultiRecordSchema`.
+Labels are derived from filenames (basename without extension).
+Discriminator values are also derived from filenames.
+
+**Note:** Bare-file mode uses filenames as discriminator values. For actual data
+parsing, prefer the Pair-based form: `load_schema('H' => "header.csv", 'D' => "detail.csv")`.
+"""
+function load_schema(
+    path1::AbstractString,
+    path2::AbstractString,
+    paths::AbstractString...;
+    discriminator::Union{UnitRange{Int},Int}=1:1,
+    record_width::Union{Int,Nothing}=nothing,
+)
+    all_paths = [path1, path2, paths...]
+    disc_range = discriminator isa Int ? (discriminator:discriminator) : discriminator
+
+    labels = _paths_to_labels(all_paths)
+    disc_values = [string(label) for label in labels]
+
+    schemas = [load_schema(p) for p in all_paths]
+
+    string_pairs = Pair{String,FixedWidthSchema}[disc_values[i] => schemas[i] for i in eachindex(all_paths)]
+    label_syms = collect(labels)
+    _build_multi_record_schema(disc_range, string_pairs, label_syms, record_width)
+end
+
+"""
+    load_schema(pair1, pair2, pairs...; discriminator=1:1, record_width=nothing) → MultiRecordSchema
+
+Load multiple schema files with explicit discriminator values.
+At least 2 pairs are required. Keys can be Char, Int, or String.
+"""
+function load_schema(
+    pair1::Pair{T,<:AbstractString},
+    pair2::Pair{T,<:AbstractString},
+    pairs::Pair{T,<:AbstractString}...;
+    discriminator::Union{UnitRange{Int},Int}=1:1,
+    record_width::Union{Int,Nothing}=nothing,
+) where {T}
+    all_pairs = [pair1, pair2, pairs...]
+    disc_range = discriminator isa Int ? (discriminator:discriminator) : discriminator
+
+    loaded = [(k, load_schema(v)) for (k, v) in all_pairs]
+
+    ms_pairs = [k => sch for (k, sch) in loaded]
+    return MultiRecordSchema(disc_range, ms_pairs...; record_width=record_width)
+end
+
+# Single-pair overload that throws helpful error
+function load_schema(
+    pair::Pair{T,<:AbstractString};
+    kwargs...,
+) where {T}
+    T <: AbstractString && return load_schema(pair.second; kwargs...)
+    throw(ArgumentError("multi-record schema requires at least 2 record types"))
+end
+
+"""
+    _paths_to_labels(paths) → Vector{Symbol}
+
+Derive output labels from file paths. Uses basename without extension.
+"""
+function _paths_to_labels(paths::Vector)
+    labels = Symbol[]
+    for p in paths
+        base = splitext(basename(p))[1]
+        push!(labels, Symbol(base))
+    end
+    if length(unique(labels)) != length(labels)
+        throw(ArgumentError(
+            "schema file names produce duplicate labels: $(labels). " *
+            "Use explicit Pair keys instead (e.g., 'H' => \"file.csv\").",
+        ))
+    end
+    return labels
+end
