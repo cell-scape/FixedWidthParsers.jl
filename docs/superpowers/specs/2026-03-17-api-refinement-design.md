@@ -41,13 +41,18 @@ MultiRecordSchema(1, 'H' => header_schema, 'D' => detail_schema)  # equivalent t
 
 | Key type | Example key | Output label |
 |----------|------------|--------------|
-| `Char`   | `'H'`     | `:H`         |
+| `Char` (letter)  | `'H'`     | `:H`         |
+| `Char` (digit)   | `'1'`     | `:type_1`    |
 | `Int`    | `1`        | `:type_1`    |
 | `String` | `"HDR"`    | `:HDR`       |
 
+Char digit keys get a `:type_` prefix (same as Int keys) since bare digit symbols like `:1` cannot be used with dot-access syntax.
+
 #### Internal Representation
 
-Internal storage stays as `Vector{Tuple{String, Symbol, FixedWidthSchema}}`. Discriminator values are normalized to bytes at construction time for efficient comparison. The original key is preserved for error messages.
+All discriminator keys are normalized to their `String` representation at construction time: `'H'` → `"H"`, `1` → `"1"`, `"HDR"` → `"HDR"`. Matching is always done via `String` comparison against the bytes read from the discriminator range (current behavior). The original key type is not preserved internally — this keeps the implementation simple and the `Vector{Tuple{String, Symbol, FixedWidthSchema}}` storage unchanged.
+
+For `Int` keys specifically, the discriminator bytes are stripped of leading/trailing spaces before comparison. Leading zeros are significant: key `1` matches `"1"` but not `"01"`. If users need leading-zero tolerance, they should use `String` keys (e.g., `"01" => schema`).
 
 #### Validation
 
@@ -111,7 +116,7 @@ ms = load_schema("header.csv", "detail.csv";
 #### Dispatch Rule
 
 - If all positional args are `AbstractString` (not `Pair`): count them. One = single schema. Two or more = multi-record with filenames as labels.
-- If any positional arg is a `Pair`: it's multi-record with explicit discriminator values.
+- If any positional arg is a `Pair`: it's multi-record with explicit discriminator values. At least 2 pairs are required; a single pair throws `ArgumentError("multi-record schema requires at least 2 record types")`.
 
 ### Section 3: New Field Descriptors — FWTime, FWDateTime, FWCustom
 
@@ -120,27 +125,33 @@ ms = load_schema("header.csv", "detail.csv";
 Parses `Dates.Time` with a format string:
 
 ```julia
-FWTime("HHmm")
+FWTime("HH:MM")           # hours:minutes (uppercase M = minutes in Julia Dates)
 FWTime("HH:MM:SS")
-FWTime("HHmmss"; default=Time(0,0,0), transform=identity)
+FWTime("HHMM"; default=Time(0,0,0), transform=identity)
 ```
 
+Default format (zero-argument constructor): `FWTime() = FWTime("HH:MM")`.
+
 Structure mirrors `FWDate`: stores `Dates.DateFormat` + `format_string` + `default` + `transform`. `parse_field` reads bytes as a string and calls `Dates.Time(str, format)`.
+
+**Note on Julia Dates format characters:** In Julia's `DateFormat`, lowercase `m` = month, uppercase `M` = minute. So `"HH:MM:SS"` is correct for time parsing.
 
 #### FWDateTime
 
 Parses `Dates.DateTime` with a format string:
 
 ```julia
-FWDateTime("ddMMMyyHHmm")
-FWDateTime("yyyy-mm-ddTHH:MM:SS"; default=DateTime(0))
+FWDateTime("yyyymmddHHMM")
+FWDateTime("yyyy-mm-ddTHH:MM:SS"; default=DateTime(1))
 ```
+
+Default format (zero-argument constructor): `FWDateTime() = FWDateTime("yyyy-mm-ddTHH:MM:SS")`.
 
 Same pattern as `FWDate`/`FWTime`.
 
 #### FWCustom
 
-Generic field with a user-provided parse function. Two modes:
+Generic field with a user-provided parse function. Parameterized for performance:
 
 ```julia
 # String mode (default): library extracts/trims field, hands you a String
@@ -151,23 +162,34 @@ FWCustom(Int, s -> length(s))
 FWCustom(Float64, (buf, pos, len) -> my_fast_parser(buf, pos, len); raw=true)
 ```
 
-Structure:
+Structure (parameterized to allow `@generated` specialization and type-stable defaults):
 
 ```julia
-struct FWCustom
+struct FWCustom{F, D}
     return_type::Type           # Julia type of the parsed value
-    parse_fn::Function          # user's function
+    parse_fn::F                 # user's function (concrete type for specialization)
     raw::Bool                   # false = string mode, true = byte mode
-    default::Union{Any,Nothing}
+    default::D                  # Union{T, Nothing} — typed per instance
     transform::Union{Function,Nothing}
 end
 ```
+
+The type parameter `F` captures the concrete function type so Julia can specialize `parse_field` in hot loops (consistent with how high-performance Julia libraries handle callable fields). `D` captures the default value type to avoid `Any`-typed fields.
 
 `parse_field` behavior:
 - `raw=false`: extract bytes as `String`, call `parse_fn(str)`
 - `raw=true`: call `parse_fn(buf, pos, len)` directly
 
 `FWCustom` is not expressible from schema files (requires a function) — code-only.
+
+#### Integration with Existing Infrastructure
+
+The following must be updated for `FWTime`, `FWDateTime`, and `FWCustom`:
+
+- **`_descriptor_string`** in `schema.jl` — new methods for REPL display of each new type.
+- **`_type_to_descriptor`** in `schema.jl` — new methods: `_type_to_descriptor(::Type{Time}) = FWTime()`, `_type_to_descriptor(::Type{DateTime}) = FWDateTime()`.
+- **`@fixedwidth` macro** symbolic dispatch — new branches for `:Time` and `:DateTime` in the macro's type-to-descriptor mapping.
+- **`_parse_type_string`** — new branches: `"Time"` → `FWTime()`, `"Time(fmt)"` → `FWTime(fmt)`, `"DateTime"` → `FWDateTime()`, `"DateTime(fmt)"` → `FWDateTime(fmt)`.
 
 ### Section 4: Optional Format Column in Schema Files
 
@@ -201,11 +223,14 @@ carrier,2,3,String
 
 #### Implementation
 
-A new internal function `_parse_type_string(type_str, format_str)`:
-1. If `format_str` is non-empty and type is `Date`/`Time`/`DateTime` → use `format_str` as the format.
-2. Otherwise fall through to existing `_parse_type_string(type_str)` logic.
+A new internal function `_parse_type_string(type_str, format_str)` with precise semantics:
 
-TOML and JSON follow the same approach — optional `"format"` key per field entry.
+1. Extract the base type name from `type_str`, stripping any parenthesized parameters (e.g., `"Date(ddMMMyy)"` → base type `"Date"`, inline format `"ddMMMyy"`).
+2. If `format_str` is non-empty **and** the base type is `Date`/`Time`/`DateTime` → construct the descriptor using `format_str` (format column wins over inline format).
+3. If `format_str` is empty → delegate to the existing single-argument `_parse_type_string(type_str)` which handles inline formats like `"Date(ddMMMyy)"`.
+4. If `format_str` is non-empty but the base type doesn't use formats → silently ignore `format_str` and delegate to `_parse_type_string(type_str)`.
+
+TOML and JSON follow the same approach — optional `"format"` key per field entry. The JSON3 extension in `ext/JSON3Ext.jl` must also be updated.
 
 ### Section 5: Minor Ergonomic Improvements
 
