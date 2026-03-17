@@ -171,7 +171,20 @@ FixedWidthSchema(:a => (1:2, FWString()), :b => (3:6, FWInt()))
 FixedWidthSchema(:a => (1, 2, FWString()), :b => (3, 4, FWInt()))
 ```
 """
-function FixedWidthSchema(pairs::Pair{Symbol}...; record_width::Union{Int,Nothing}=nothing)
+function FixedWidthSchema(raw_pairs::Pair...; record_width::Union{Int,Nothing}=nothing)
+    # Normalize keys to Symbol
+    pairs = map(raw_pairs) do p
+        key = p.first
+        if key isa Symbol
+            key
+        elseif key isa AbstractString
+            Symbol(key)
+        else
+            throw(ArgumentError(
+                "field name must be a Symbol or String, got $(typeof(key)): $(repr(key))"
+            ))
+        end => p.second
+    end
     isempty(pairs) && return FixedWidthSchema(FieldSpec[], 0)
 
     first_val = pairs[1].second
@@ -372,7 +385,21 @@ function _parse_type_string(s::AbstractString)
     s == "Float64" && return FWFloat()
     s == "Skip"    && return FWSkip()
     s == "Bool"    && return FWBool()
-    s == "Date"    && return FWDate("yyyymmdd")
+    s == "Date"     && return FWDate("yyyymmdd")
+    s == "Time"     && return FWTime()
+    s == "DateTime" && return FWDateTime()
+
+    # DateTime(fmt)
+    m = match(r"^DateTime\((.+)\)$", s)
+    if m !== nothing
+        return FWDateTime(strip(m.captures[1]))
+    end
+
+    # Time(fmt)
+    m = match(r"^Time\((.+)\)$", s)
+    if m !== nothing
+        return FWTime(strip(m.captures[1]))
+    end
 
     # Date(fmt)
     m = match(r"^Date\((.+)\)$", s)
@@ -393,6 +420,40 @@ function _parse_type_string(s::AbstractString)
     end
 
     throw(ArgumentError("unknown type string \"$s\""))
+end
+
+"""
+    _parse_type_string(type_str, format_str) → descriptor
+
+Map a type name string to a field-type descriptor, optionally overriding the
+format with `format_str`. The format column takes precedence over any inline
+format in the type string (e.g., `Date(yyyymmdd)`).
+"""
+function _parse_type_string(type_str::AbstractString, format_str::AbstractString)
+    type_str = strip(type_str)
+    format_str = strip(format_str)
+
+    # If no format override, delegate to existing single-arg form
+    isempty(format_str) && return _parse_type_string(type_str)
+
+    # Extract base type name (strip parenthesized params)
+    base_type = type_str
+    m = match(r"^(\w+)\(", type_str)
+    if m !== nothing
+        base_type = m.captures[1]
+    end
+
+    # Apply format override for Date/Time/DateTime types
+    if base_type == "Date"
+        return FWDate(format_str)
+    elseif base_type == "Time"
+        return FWTime(format_str)
+    elseif base_type == "DateTime"
+        return FWDateTime(format_str)
+    end
+
+    # For non-date types, ignore format_str and delegate
+    return _parse_type_string(type_str)
 end
 
 # ---------------------------------------------------------------------------
@@ -426,6 +487,8 @@ _type_to_descriptor(::Type{Float64}) = FWFloat()
 _type_to_descriptor(::Type{Date})    = FWDate("yyyymmdd")
 _type_to_descriptor(::Type{Skip})    = FWSkip()
 _type_to_descriptor(::Type{Bool})    = FWBool()
+_type_to_descriptor(::Type{Time})     = FWTime()
+_type_to_descriptor(::Type{DateTime}) = FWDateTime()
 
 # ---------------------------------------------------------------------------
 # @fixedwidth macro
@@ -547,6 +610,12 @@ macro fixedwidth(expr)
             :(FixedWidthParsers.FWDate("yyyymmdd"))
         elseif ftype === :Bool
             :(FixedWidthParsers.FWBool())
+        elseif ftype === :Time ||
+               (ftype isa Expr && ftype.head === :(.) && ftype.args[end] === QuoteNode(:Time))
+            :(FixedWidthParsers.FWTime())
+        elseif ftype === :DateTime ||
+               (ftype isa Expr && ftype.head === :(.) && ftype.args[end] === QuoteNode(:DateTime))
+            :(FixedWidthParsers.FWDateTime())
         else
             # Generic fallback: call _type_to_descriptor at runtime
             :(FixedWidthParsers._type_to_descriptor($(esc(ftype))))
@@ -679,6 +748,32 @@ function _descriptor_string(d::FWDate)
     d.default !== nothing && push!(params, "default=$(d.default)")
     base = isempty(params) ? "FWDate" : "FWDate($(join(params, ", ")))"
     d.transform !== nothing && return base * "+transform"
+    return base
+end
+
+function _descriptor_string(d::FWTime)
+    params = String[]
+    d.format_string != "HH:MM" && push!(params, "\"$(d.format_string)\"")
+    d.default !== nothing && push!(params, "default=$(d.default)")
+    base = isempty(params) ? "FWTime" : "FWTime($(join(params, ", ")))"
+    d.transform !== nothing && return base * "+transform"
+    return base
+end
+
+function _descriptor_string(d::FWDateTime)
+    params = String[]
+    d.format_string != "yyyy-mm-ddTHH:MM:SS" && push!(params, "\"$(d.format_string)\"")
+    d.default !== nothing && push!(params, "default=$(d.default)")
+    base = isempty(params) ? "FWDateTime" : "FWDateTime($(join(params, ", ")))"
+    d.transform !== nothing && return base * "+transform"
+    return base
+end
+
+function _descriptor_string(d::FWCustom)
+    mode = d.raw ? "raw" : "string"
+    base = "FWCustom($(d.return_type), $mode)"
+    d.default !== nothing && (base *= ", default=$(repr(d.default))")
+    d.transform !== nothing && (base *= "+transform")
     return base
 end
 

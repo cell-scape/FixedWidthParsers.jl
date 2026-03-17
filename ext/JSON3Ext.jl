@@ -21,7 +21,8 @@ function FixedWidthParsers._load_schema_json(
         name = Symbol(fd[:name])
         start_byte = fd[:start]::Int
         end_byte = fd[:end]::Int
-        type_desc = FixedWidthParsers._parse_type_string(fd[:type])
+        format_str = get(fd, :format, "")
+        type_desc = FixedWidthParsers._parse_type_string(fd[:type], format_str)
         push!(pairs, name => (start_byte:end_byte, type_desc))
     end
 
