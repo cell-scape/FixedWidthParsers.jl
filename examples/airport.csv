@@ -40,3 +40,4 @@ metro_area,159,161,String
 status,162,162,String
 location_subtype,163,163,String
 location_subctry,167,168,String
+serial_number,169,176,Int
