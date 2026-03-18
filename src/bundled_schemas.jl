@@ -79,7 +79,7 @@ julia> AIRPORT_SCHEMA isa FixedWidthSchema
 true
 ```
 """
-const AIRPORT_SCHEMA = load_schema(joinpath(_EXAMPLES_DIR, "airport.csv"))
+const AIRPORT_SCHEMA = load_schema(joinpath(_EXAMPLES_DIR, "airport.csv"); record_width=176)
 
 """
     MCT_SCHEMA :: FixedWidthSchema
