@@ -1,0 +1,8 @@
+name,start,end,type
+owner,42,43,String
+equip,44,46,String
+cabins,47,51,String
+cabin1,52,54,Int
+cabin2,56,58,Int
+cabin3,60,62,Int
+total,72,74,Int

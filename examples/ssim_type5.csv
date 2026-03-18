@@ -1,0 +1,7 @@
+name,start,end,type
+record_type,1,1,Int
+carrier,3,5,String
+release_date,6,12,String
+serial_number_check_reference,188,193,Int
+continuation_code,194,194,String
+serial_number,195,195,Int

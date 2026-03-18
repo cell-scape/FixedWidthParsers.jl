@@ -1,0 +1,6 @@
+name,start,end,type
+record_type,1,1,String
+title_of_contents,2,35,String
+number_of_seasons,41,41,Int
+dataset_serial_number,192,194,Int
+serial_number,195,200,Int

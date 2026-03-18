@@ -239,9 +239,17 @@ using FixedWidthParsers
         @test_throws ArgumentError MultiRecordSchema(1:2, 'H' => schema, 'D' => schema)
     end
 
-    @testset "mixed key types are a MethodError" begin
-        schema = FixedWidthSchema(:val => (3, FWString()))
-        @test_throws MethodError MultiRecordSchema(1:1, 'H' => schema, "D" => schema)
+    @testset "mixed key types are accepted via catch-all" begin
+        schema = FixedWidthSchema(:rec_type => (1, FWString()), :val => (4, FWString()))
+        ms = MultiRecordSchema(1:1, 'H' => schema, "D" => schema)
+        path = tempname()
+        open(path, "w") do io
+            write(io, "HABCD\nDEFGH\n")
+        end
+        result = parse_file(path, ms)
+        @test result[:H].val == ["ABCD"]
+        @test result[:D].val == ["EFGH"]
+        rm(path)
     end
 
 end

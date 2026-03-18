@@ -1,0 +1,4 @@
+name,start,end,type
+region,1,3,String
+airport,4,6,String
+city,7,9,String

@@ -1,0 +1,16 @@
+name,start,end,type
+record_type,1,1,Int
+operational_suffix,2,2,String
+carrier,3,5,String
+flight_number,6,9,Int
+itinerary_var_id,10,11,Int
+leg_sequence_number,12,13,Int
+service_type,14,14,String
+itinerary_var_id_overflow,28,28,Int
+board_point_indicator,29,29,String
+off_point_indicator,30,30,String
+data_element_identifier,31,33,Int
+board_point,34,36,String
+off_point,37,39,String
+data,40,194,String
+serial_number,195,195,Int

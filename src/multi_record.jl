@@ -187,6 +187,18 @@ function MultiRecordSchema(
     return MultiRecordSchema(position:position, pairs...; record_width=record_width)
 end
 
+# Catch-all: accept mixed or arbitrary key types and convert to String
+function MultiRecordSchema(
+    discriminator::Union{UnitRange{Int}, Int},
+    pairs::Pair{<:Any, FixedWidthSchema}...;
+    record_width::Union{Int, Nothing}=nothing,
+)
+    disc_range = discriminator isa Int ? (discriminator:discriminator) : discriminator
+    string_pairs = Pair{String, FixedWidthSchema}[string(k) => v for (k, v) in pairs]
+    labels = [_discriminator_label(k) for (k, _) in pairs]
+    _build_multi_record_schema(disc_range, string_pairs, labels, record_width)
+end
+
 # ---------------------------------------------------------------------------
 # parse_file for MultiRecordSchema
 # ---------------------------------------------------------------------------
@@ -266,9 +278,10 @@ function parse_file(
             disc_bytes = strip(String(copy(buf[field_pos:(field_pos + disc_len - 1)])))
             group_idx = get(disc_lookup, disc_bytes, 0)
             if group_idx == 0
+                expected = join([repr(dv) for (dv, _, _) in ms.schemas], ", ")
                 throw(
                     ArgumentError(
-                        "unknown discriminator value $(repr(disc_bytes)) at record $rec_idx",
+                        "unknown discriminator value $(repr(disc_bytes)) at record $rec_idx; expected one of: $expected",
                     ),
                 )
             end
@@ -413,9 +426,10 @@ function Base.iterate(iter::MultiRecordIterator, state::Int=1)
         end
     end
 
+    expected = join([repr(dv) for (dv, _, _) in iter.ms.schemas], ", ")
     throw(
         ArgumentError(
-            "unknown discriminator value $(repr(disc_bytes)) at record $src_i",
+            "unknown discriminator value $(repr(disc_bytes)) at record $src_i; expected one of: $expected",
         ),
     )
 end
