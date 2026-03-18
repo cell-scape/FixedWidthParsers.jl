@@ -16,9 +16,9 @@ Each record type maps a discriminator value (e.g. `"H"`, `"D"`, `"T"`) to a
 to classify it into the appropriate group.
 
 # Fields
-- `discriminator::UnitRange{Int}` — byte range of the discriminator field
-- `schemas::Vector{Tuple{String, Symbol, FixedWidthSchema}}` — `(disc_value, label, schema)` triples
-- `record_width::Int` — total bytes per record (max of all schemas or override)
+- `discriminator::UnitRange{Int}` -- byte range of the discriminator field
+- `schemas::Vector{Tuple{String, Symbol, FixedWidthSchema}}` -- `(disc_value, label, schema)` triples
+- `record_width::Int` -- total bytes per record (max of all schemas or override)
 
 # Example
 
@@ -35,6 +35,18 @@ ms = MultiRecordSchema(
 result = parse_file("data.dat", ms)
 result[:H].title   # Vector of header titles
 result[:D].value   # Vector of detail values
+```
+
+```jldoctest
+julia> schema = FixedWidthSchema(:rec_type => (1, FWString()), :val => (4, FWInt()));
+
+julia> ms = MultiRecordSchema(1:1, "H" => schema, "D" => schema);
+
+julia> ms.discriminator
+1:1
+
+julia> length(ms.schemas)
+2
 ```
 """
 struct MultiRecordSchema
@@ -90,14 +102,17 @@ end
 Construct a `MultiRecordSchema` from a discriminator byte range and one or more
 `value => schema` pairs.
 
-Labels are derived from discriminator values: `"H"` → `:H`, `"DT"` → `:DT`.
+Keys can be `String`, `Char`, `Int`, or mixed types -- all are converted to
+`String` internally. Labels are derived from discriminator values:
+`"H"` becomes `:H`, `'3'` becomes `:type_3`, `5` becomes `:type_5`.
 
 # Arguments
-- `discriminator::UnitRange{Int}` — byte range (1-based) of the discriminator field
-- `pairs...` — `Pair{String, FixedWidthSchema}` mapping each discriminator value to its schema
+- `discriminator::Union{UnitRange{Int}, Int}` -- byte range (1-based) or single
+  byte position of the discriminator field
+- `pairs...` -- `key => FixedWidthSchema` mapping each discriminator value to its schema
 
 # Keyword Arguments
-- `record_width::Union{Int, Nothing}=nothing` — override the record width (must be >= the
+- `record_width::Union{Int, Nothing}=nothing` -- override the record width (must be >= the
   widest sub-schema). Defaults to the maximum width across all sub-schemas.
 
 # Errors
@@ -106,15 +121,17 @@ Labels are derived from discriminator values: `"H"` → `:H`, `"DT"` → `:DT`.
 - `ArgumentError` if duplicate discriminator values are supplied
 - `ArgumentError` if `record_width` is less than the widest sub-schema
 
-# Example
+# Examples
 
 ```julia
-ms = MultiRecordSchema(
-    1:1,
-    "H" => header_schema,
-    "D" => detail_schema,
-    "T" => trailer_schema,
-)
+# String keys
+ms = MultiRecordSchema(1:1, "H" => header_schema, "D" => detail_schema)
+
+# Char keys
+ms = MultiRecordSchema(1:1, 'H' => header_schema, 'D' => detail_schema)
+
+# Mixed key types (catch-all constructor)
+ms = MultiRecordSchema(1:1, 'H' => header_schema, "D" => detail_schema)
 ```
 """
 function MultiRecordSchema(
@@ -187,7 +204,13 @@ function MultiRecordSchema(
     return MultiRecordSchema(position:position, pairs...; record_width=record_width)
 end
 
-# Catch-all: accept mixed or arbitrary key types and convert to String
+"""
+    MultiRecordSchema(discriminator, pairs::Pair{<:Any, FixedWidthSchema}...; record_width=nothing)
+
+Catch-all constructor that accepts mixed or arbitrary key types. Each key is
+converted to `String` via `string(k)`, so `'H'`, `"H"`, and `72` (ASCII for H)
+all produce the same discriminator value.
+"""
 function MultiRecordSchema(
     discriminator::Union{UnitRange{Int}, Int},
     pairs::Pair{<:Any, FixedWidthSchema}...;

@@ -110,5 +110,58 @@ using JSON3
 schema = load_schema("flights.json")
 ```
 
+## Multi-Record Parsing
+
+Parse files where each line can be a different record type, identified by a discriminator field:
+
+```julia
+header = FixedWidthSchema(:rec_type => (1, FWString()), :title => (9, FWString()))
+detail = FixedWidthSchema(:rec_type => (1, FWString()), :code  => (3, FWString()), :value => (6, FWInt()))
+
+ms = MultiRecordSchema(1:1, "H" => header, "D" => detail)
+
+result = parse_file("mixed.dat", ms)
+result[:H].title   # Vector of header titles
+result[:D].value   # Vector of detail values
+```
+
+Discriminator keys can be `String`, `Char`, `Int`, or mixed types. Lazy iteration works too — each record includes a `_type` field identifying the matched schema:
+
+```julia
+for rec in eachrecord("mixed.dat", ms)
+    if rec._type === :H
+        println("Header: ", rec.title)
+    end
+end
+```
+
+Load multi-record schemas from multiple CSV files with explicit discriminator keys:
+
+```julia
+ms = load_schema(
+    '1' => "type1_schema.csv",
+    '2' => "type2_schema.csv";
+    discriminator=1:1,
+    record_width=200,
+)
+```
+
+## Bundled Schemas
+
+Pre-built schemas for common aviation fixed-width formats:
+
+```julia
+using FixedWidthParsers
+
+# Parse a full SSIM schedule file (5 record types, 200-byte lines)
+result = parse_file("schedule.ssim", SSIM_SCHEMA; on_error=:lenient)
+result[:type_3]  # flight leg records
+
+# Parse reference data files
+aircraft = parse_file("aircraft.dat", AIRCRAFT_SCHEMA)
+```
+
+Available bundled schemas: [`SSIM_SCHEMA`](@ref), [`AIRCRAFT_SCHEMA`](@ref), [`AIRPORT_SCHEMA`](@ref), [`MCT_SCHEMA`](@ref), [`MCT_PRIORITY_SCHEMA`](@ref), [`REGIONAL_SCHEMA`](@ref), [`SEATS_SCHEMA`](@ref).
+
 See the [API Reference](@ref) for full documentation.
 

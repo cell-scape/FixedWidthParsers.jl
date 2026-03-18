@@ -1,6 +1,8 @@
 using Documenter
 using FixedWidthParsers
 
+DocMeta.setdocmeta!(FixedWidthParsers, :DocTestSetup, :(using FixedWidthParsers); recursive=true)
+
 makedocs(
     sitename = "FixedWidthParsers.jl",
     modules = [FixedWidthParsers],

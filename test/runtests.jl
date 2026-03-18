@@ -30,4 +30,5 @@ using StructArrays
     include("test_custom_field.jl")
     include("test_multi_schema_loading.jl")
     include("test_discriminator_robustness.jl")
+    include("test_bundled_schemas.jl")
 end

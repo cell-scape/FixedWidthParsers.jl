@@ -162,8 +162,9 @@ end
 """
     load_schema(pair1, pair2, pairs...; discriminator=1:1, record_width=nothing) → MultiRecordSchema
 
-Load multiple schema files with explicit discriminator values.
-At least 2 pairs are required. Keys can be Char, Int, or String.
+Load multiple schema files with explicit discriminator values and combine into a
+`MultiRecordSchema`. At least 2 pairs are required. Keys can be `Char`, `Int`,
+or `String` -- all are forwarded to the `MultiRecordSchema` constructor.
 """
 function load_schema(
     pair1::Pair{T,<:AbstractString},

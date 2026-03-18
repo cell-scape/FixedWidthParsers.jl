@@ -12,6 +12,8 @@ Fixed-width file parser for Julia.
 - **Column selection** — `select` and `exclude` keywords to parse a subset of fields
 - **Byte-range schemas** — specify fields by `start:end` byte positions with auto gap-fill
 - **Schema file loading** — `load_schema` reads schemas from CSV, TOML, and JSON files
+- **Multi-record files** — `MultiRecordSchema` parses files with mixed record types identified by a discriminator field
+- **Bundled schemas** — Pre-built schemas for SSIM schedules, aircraft, airport, MCT, and more
 - **Record skipping** — `skip_header`, `skip_footer`, `comment` keywords
 - **Error modes** — strict (throw `ParseError`) or lenient (return `missing`)
 
@@ -114,6 +116,74 @@ using JSON3
 schema = load_schema("flights.json")
 ```
 
+## Multi-Record Parsing
+
+Parse files where each line can be a different record type, identified by a discriminator field:
+
+```julia
+header = FixedWidthSchema(:rec_type => (1, FWString()), :title => (9, FWString()))
+detail = FixedWidthSchema(:rec_type => (1, FWString()), :code  => (3, FWString()), :value => (6, FWInt()))
+
+ms = MultiRecordSchema(1:1, "H" => header, "D" => detail)
+
+result = parse_file("mixed.dat", ms)
+result[:H].title   # Vector of header titles
+result[:D].value   # Vector of detail values
+```
+
+Discriminator keys can be `String`, `Char`, `Int`, or mixed:
+
+```julia
+ms = MultiRecordSchema(1:1, 'H' => header, 'D' => detail)
+```
+
+Lazy iteration works too — each record includes a `:_type` field:
+
+```julia
+for rec in eachrecord("mixed.dat", ms)
+    if rec._type === :H
+        println("Header: ", rec.title)
+    end
+end
+```
+
+Load multi-record schemas from multiple CSV files with explicit discriminator keys:
+
+```julia
+ms = load_schema(
+    '1' => "type1_schema.csv",
+    '2' => "type2_schema.csv";
+    discriminator=1:1,
+    record_width=200,
+)
+```
+
+## Bundled Schemas
+
+Pre-built schemas for common aviation fixed-width formats:
+
+```julia
+using FixedWidthParsers
+
+# Parse a full SSIM schedule file (5 record types, 200-byte lines)
+result = parse_file("schedule.ssim", SSIM_SCHEMA; on_error=:lenient)
+result[:type_3]  # flight leg records
+
+# Parse reference data files
+aircraft = parse_file("aircraft.dat", AIRCRAFT_SCHEMA)
+airports = parse_file("airports.dat", AIRPORT_SCHEMA)
+```
+
+| Schema | Type | Description |
+|--------|------|-------------|
+| `SSIM_SCHEMA` | `MultiRecordSchema` | SSIM schedules (types 1–5, discriminator at byte 1) |
+| `AIRCRAFT_SCHEMA` | `FixedWidthSchema` | IATA aircraft equipment reference |
+| `AIRPORT_SCHEMA` | `FixedWidthSchema` | IATA airport/timezone reference |
+| `MCT_SCHEMA` | `FixedWidthSchema` | Minimum Connecting Time (byte order) |
+| `MCT_PRIORITY_SCHEMA` | `FixedWidthSchema` | MCT (priority order) |
+| `REGIONAL_SCHEMA` | `FixedWidthSchema` | Region/airport/city mapping |
+| `SEATS_SCHEMA` | `FixedWidthSchema` | Seat configuration data |
+
 ## Parallel Parsing
 
 ```julia
@@ -139,7 +209,11 @@ end
 | `FWInt()` | `Int` | Integer |
 | `FWFloat()` | `Float64` | Floating-point |
 | `FWDate(fmt)` | `Date` | Date with format string (default `"yyyymmdd"`) |
+| `FWTime(fmt)` | `Time` | Time with format string (default `"HHMM"`) |
+| `FWDateTime(fmt)` | `DateTime` | DateTime with format string |
 | `FWFixedPoint(n)` | `Float64` | Implied-decimal fixed point |
+| `FWBool(trueval)` | `Bool` | Matches a specific true value |
+| `FWCustom(f)` | any | Custom parse function |
 | `FWSkip()` | — | Skip field (excluded from output) |
 
 ## Documentation
