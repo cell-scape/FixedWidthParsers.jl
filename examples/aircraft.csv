@@ -4,8 +4,8 @@ equip,7,9,String
 description,12,51,String
 ac_type,54,54,String
 bodytype,60,60,String
-ac_range,65,68,Int
-ac_speed,72,74,Int
+ac_range,65,68,String
+ac_speed,72,74,String
 ac_pax_cargo,79,80,String
 ac_pax_only,89,95,String
 ac_cargo_only,99,102,String
