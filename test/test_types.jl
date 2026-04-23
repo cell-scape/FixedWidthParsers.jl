@@ -15,6 +15,45 @@ using FixedWidthParsers: parse_field, FWString, FWInt, FWFloat, FWSkip,
 
         buf = to_buf("0007")
         @test parse_field(FWInt(), buf, 1, 4) == 7
+
+        # Leading + is accepted
+        buf = to_buf(" +42")
+        @test parse_field(FWInt(), buf, 1, 4) == 42
+
+        # Trailing spaces after digits are accepted
+        buf = to_buf("42  ")
+        @test parse_field(FWInt(), buf, 1, 4) == 42
+
+        # Leading and trailing spaces around a signed value
+        buf = to_buf(" -5 ")
+        @test parse_field(FWInt(), buf, 1, 4) == -5
+    end
+
+    @testset "FWInt strictness — reject malformed integers" begin
+        # Non-leading '-' must not flip the sign silently
+        @test_throws ArgumentError parse_field(FWInt(), to_buf("1-23"), 1, 4)
+        @test_throws ArgumentError parse_field(FWInt(), to_buf("12-3"), 1, 4)
+        @test_throws ArgumentError parse_field(FWInt(), to_buf("5-"), 1, 2)
+
+        # Non-leading '+' is also invalid
+        @test_throws ArgumentError parse_field(FWInt(), to_buf("1+2"), 1, 3)
+
+        # Double signs
+        @test_throws ArgumentError parse_field(FWInt(), to_buf("--5"), 1, 3)
+        @test_throws ArgumentError parse_field(FWInt(), to_buf("++5"), 1, 3)
+        @test_throws ArgumentError parse_field(FWInt(), to_buf("-+5"), 1, 3)
+
+        # Sign followed by space (no digit contiguous with the sign)
+        @test_throws ArgumentError parse_field(FWInt(), to_buf("-  5"), 1, 4)
+
+        # Interior spaces between digits
+        @test_throws ArgumentError parse_field(FWInt(), to_buf("1 2"), 1, 3)
+        @test_throws ArgumentError parse_field(FWInt(), to_buf("12 34"), 1, 5)
+
+        # No digits at all
+        @test_throws ArgumentError parse_field(FWInt(), to_buf("    "), 1, 4)
+        @test_throws ArgumentError parse_field(FWInt(), to_buf("-"), 1, 1)
+        @test_throws ArgumentError parse_field(FWInt(), to_buf("+"), 1, 1)
     end
 
     @testset "FWFloat" begin

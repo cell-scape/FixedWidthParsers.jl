@@ -262,25 +262,53 @@ end
 """
     _parse_int_bytes(buf, pos, len) → Int
 
-Zero-allocation integer parser.  Walks bytes directly, handling leading/trailing
-spaces and an optional leading minus sign.  No function calls in the hot path.
+Zero-allocation integer parser.  Accepts the grammar:
+
+    [spaces] [ '+' | '-' ] digit+ [spaces]
+
+Any other byte (non-leading sign, interior space, trailing non-space) throws
+`ArgumentError`.  No function calls in the hot path.
 """
 @inline function _parse_int_bytes(buf::AbstractVector{UInt8}, pos::Int, len::Int)
-    val = zero(Int)
+    stop = pos + len - 1
+    i = pos
+    # Skip leading spaces
+    @inbounds while i <= stop && buf[i] == 0x20
+        i += 1
+    end
+    i > stop && throw(ArgumentError("cannot parse Int from \"$(String(copy(buf[pos:stop])))\""))
+
+    # Optional single sign byte
     neg = false
-    has_digit = false
-    @inbounds for i in pos:pos+len-1
+    @inbounds begin
         b = buf[i]
         if b == 0x2d  # '-'
             neg = true
-        elseif b >= 0x30 && b <= 0x39  # '0'-'9'
-            val = val * 10 + Int(b - 0x30)
-            has_digit = true
-        elseif b != 0x20 && b != 0x2b  # not space or '+'
-            throw(ArgumentError("invalid base 10 digit '$(Char(b))' in \"$(String(copy(buf[pos:pos+len-1])))\""))
+            i += 1
+        elseif b == 0x2b  # '+'
+            i += 1
         end
     end
-    has_digit || throw(ArgumentError("cannot parse Int from \"$(String(copy(buf[pos:pos+len-1])))\""))
+
+    # One or more digits
+    val = zero(Int)
+    digit_start = i
+    @inbounds while i <= stop
+        b = buf[i]
+        (b >= 0x30 && b <= 0x39) || break
+        val = val * 10 + Int(b - 0x30)
+        i += 1
+    end
+    i == digit_start &&
+        throw(ArgumentError("cannot parse Int from \"$(String(copy(buf[pos:stop])))\""))
+
+    # Trailing bytes must be spaces only
+    @inbounds while i <= stop
+        buf[i] == 0x20 ||
+            throw(ArgumentError("invalid base 10 digit '$(Char(buf[i]))' in \"$(String(copy(buf[pos:stop])))\""))
+        i += 1
+    end
+
     return neg ? -val : val
 end
 
