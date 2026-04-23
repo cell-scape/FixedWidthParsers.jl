@@ -94,8 +94,34 @@ Row-oriented fix (#1) is the clear top priority — it's the largest absolute ga
 
 ---
 
+## Change logs
+
+### `madvise(MADV_SEQUENTIAL)` on mmap — 2026-04-23
+
+A/B comparison, same session, best-of-10 per config:
+
+| Config                  | madvise off | madvise on |  Δ      |
+|-------------------------|------------:|-----------:|--------:|
+| narrow 1M ntasks=1      |    43.94 ms |   43.62 ms |  +0.7 % |
+| narrow 1M ntasks=8      |    14.69 ms |   14.81 ms |  -0.8 % |
+| narrow 5M ntasks=1      |   225.75 ms |  226.06 ms |  -0.1 % |
+| narrow 5M ntasks=8      |    69.23 ms |   66.15 ms |  +4.4 % |
+| wide 500k ntasks=1      |   783.05 ms |  769.99 ms |  +1.7 % |
+| wide 500k ntasks=8      |   287.62 ms |  276.55 ms |  +3.8 % |
+
+Warm-cache gain is marginal (0–4 %). No regressions; the ~4 % on
+multi-threaded configs is probably real prefetch concurrency help.
+Cold-cache gain expected but not measurable on this macOS workstation
+without `sudo purge` between runs.
+
+**Verdict:** kept. It's three lines for a small but free win with no
+downside, and the benefit should be more visible on first-load of large
+files (cold cache) which is a common user workload we can't easily
+isolate here.
+
 ## Historical runs
 
 | Date       | Commit    | Notes                                      |
 |------------|-----------|--------------------------------------------|
 | 2026-04-23 | `4fbcf37` | Initial baseline after perf/parse_string commits. |
+| 2026-04-23 | _this branch_ | `madvise(MADV_SEQUENTIAL)` added in `src/io.jl`. |
