@@ -1099,9 +1099,18 @@ function _fill_string_column_indexed_default!(
 end
 
 """
-    _parse_rows(schema, src, buf, n, on_error) → Vector{NamedTuple}
+    _parse_rows(schema, src, buf, n, on_error) → Vector{NamedTuple{names, Tuple{types...}}}
 
-Row-oriented parse with error handling.
+Row-oriented parse.
+
+Implementation note: the "obvious" approach (walk the records, parse each
+field via `parse_field(f.type, ...)` and build a NamedTuple) is ~40× slower
+than the columnar path because `FieldSpec.type::Any` forces dynamic
+dispatch on every field access. Instead, we delegate to the columnar path
+(which already specializes per column via concrete-type function barriers)
+and transpose the result to a typed `Vector{NamedTuple}`. Peak memory is
+~2× the returned size, but throughput stays within a small factor of
+columnar.
 """
 function _parse_rows(
     schema::FixedWidthSchema,
@@ -1110,28 +1119,8 @@ function _parse_rows(
     n::Int,
     on_error::Symbol,
 )
-    ns_fields = schema._output_fields
-    names = schema._output_names
-
-    result = Vector{NamedTuple}(undef, n)
-    for i in 1:n
-        rec_pos = record_offset(src, i)
-        nf = length(ns_fields)
-        values = ntuple(nf) do j
-            @inbounds f = ns_fields[j]
-            raw = _safe_parse_field(f, buf, rec_pos, i, on_error)
-            if raw === missing
-                missing
-            elseif _get_transform(f.type) !== nothing
-                # transform already applied inside _safe_parse_field; skip _coerce
-                raw
-            else
-                _coerce(f.type, f.width, raw)
-            end
-        end
-        result[i] = NamedTuple{names}(values)
-    end
-    return result
+    sa = _parse_columnar(schema, src, buf, n, on_error, 1)
+    return _transpose_to_rows(sa, n)
 end
 
 """
@@ -1179,9 +1168,11 @@ function _parse_columnar_indexed(
 end
 
 """
-    _parse_rows_indexed(schema, src, buf, indices, on_error) → Vector{NamedTuple}
+    _parse_rows_indexed(schema, src, buf, indices, on_error) → Vector{NamedTuple{names, Tuple{types...}}}
 
-Row-oriented parse using explicit record indices.
+Row-oriented parse using explicit record indices (after skip_header /
+skip_footer / comment filtering). Uses the same columnar-then-transpose
+strategy as `_parse_rows`.
 """
 function _parse_rows_indexed(
     schema::FixedWidthSchema,
@@ -1190,26 +1181,23 @@ function _parse_rows_indexed(
     indices::Vector{Int},
     on_error::Symbol,
 )
-    ns_fields = schema._output_fields
-    names = schema._output_names
+    sa = _parse_columnar_indexed(schema, src, buf, indices, on_error, 1)
+    return _transpose_to_rows(sa, length(indices))
+end
 
-    result = Vector{NamedTuple}(undef, length(indices))
-    for (j, src_i) in enumerate(indices)
-        rec_pos = record_offset(src, src_i)
-        nf = length(ns_fields)
-        values = ntuple(nf) do k
-            @inbounds f = ns_fields[k]
-            raw = _safe_parse_field(f, buf, rec_pos, src_i, on_error)
-            if raw === missing
-                missing
-            elseif _get_transform(f.type) !== nothing
-                # transform already applied inside _safe_parse_field; skip _coerce
-                raw
-            else
-                _coerce(f.type, f.width, raw)
-            end
-        end
-        result[j] = NamedTuple{names}(values)
+"""
+    _transpose_to_rows(sa::StructArray, n::Int) → Vector{NamedTuple}
+
+Convert a `StructArray` to a `Vector{NamedTuple}` with a concrete
+`NamedTuple{names, Tuple{types...}}` element type. The StructArray's
+`eltype` carries the concrete NT type, so the fill loop is fully
+type-stable and the result vector is not boxed.
+"""
+@inline function _transpose_to_rows(sa::StructArray, n::Int)
+    NT = eltype(sa)
+    result = Vector{NT}(undef, n)
+    @inbounds for i in 1:n
+        result[i] = sa[i]
     end
     return result
 end

@@ -159,10 +159,38 @@ compare against the 12 English abbreviations.
 All 876 tests pass (up from 716; 160 new including a 120-iteration
 fuzz test vs `Dates.Date(s, fmt)` on yyyymmdd / yyyy-mm-dd / dduuuyy).
 
+### Row-oriented path rewrite — 2026-04-23
+
+The `columnar=false` path used `Vector{NamedTuple}` (abstract eltype — every
+row heap-boxed) and walked records through `_safe_parse_field`, which did
+dynamic dispatch on `f.type::Any` plus a try/catch per field. Result: 40×
+slower than columnar.
+
+Rewrite: `_parse_rows` and `_parse_rows_indexed` now delegate to the
+columnar path (which already specializes per column via concrete-type
+function barriers) and transpose the resulting `StructArray` to a
+`Vector{NamedTuple{names, Tuple{types...}}}` with a **concrete** eltype.
+The fill loop `result[i] = sa[i]` is fully type-stable.
+
+| Path                        | Before         | After         | Speedup |
+|-----------------------------|---------------:|--------------:|--------:|
+| row-oriented 1M records     |   1983.6 ms    |    44.8 ms    |  44.3×  |
+|                             |    0.5 M rec/s |  22.3 M rec/s |         |
+| row vs columnar ratio       |        ~40×    |       1.05×   |         |
+
+Tradeoff: peak memory during parsing is ~2× the returned size (we allocate
+columns, then transpose to rows). For typical workloads this is fine; for
+huge files users should prefer `columnar=true` regardless.
+
+Test count: 716 → 736 (new: concrete-eltype guard, value-match vs
+columnar, lenient Union{T,Missing} field types, indexed variant,
+throughput regression guard ≤ 10× columnar).
+
 ## Historical runs
 
 | Date       | Commit    | Notes                                      |
 |------------|-----------|--------------------------------------------|
 | 2026-04-23 | `4fbcf37` | Initial baseline after perf/parse_string commits. |
-| 2026-04-23 | _perf/madvise-sequential_ | `madvise(MADV_SEQUENTIAL)` on mmap.             |
+| 2026-04-23 | _perf/madvise-sequential_ | `madvise(MADV_SEQUENTIAL)` on mmap. |
 | 2026-04-23 | _perf/fast-date-parsers_  | Fast-path byte-level date/time/datetime parsers. |
+| 2026-04-23 | _perf/fast-row-parse_     | Row-oriented path rewritten as columnar + transpose. |
