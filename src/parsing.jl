@@ -20,6 +20,10 @@ values are the parsed field values.
 `FWSkip` fields are silently omitted from the output; all other fields are
 parsed using the `parse_field` dispatch defined in `types.jl`.
 
+String fields are returned as owned `InlineString`/`String` values (not
+views), so the returned `NamedTuple` remains valid even after the underlying
+buffer is closed or mutated.
+
 # Arguments
 - `schema` — the `FixedWidthSchema` describing the record layout
 - `buf`    — byte buffer (`AbstractVector{UInt8}`) containing the raw data
@@ -48,7 +52,8 @@ function parse_record(schema::FixedWidthSchema, buf::AbstractVector{UInt8}, pos:
     n = length(ns)
     values = ntuple(n) do i
         @inbounds f = ns[i]
-        parse_field(f.type, buf, pos + f.offset - 1, f.width)
+        val = parse_field(f.type, buf, pos + f.offset - 1, f.width)
+        _coerce(f.type, f.width, val)
     end
     return NamedTuple{schema._output_names}(values)
 end
