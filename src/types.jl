@@ -420,7 +420,7 @@ Parse a `Date` value from ASCII bytes using the `DateFormat` stored in `fw`.
 """
 @inline function parse_field(fw::FWDate, buf::AbstractVector{UInt8}, pos::Int, len::Int)
     sv = StringView(@view buf[pos:pos+len-1])
-    return Dates.Date(String(sv), fw.format)
+    return Dates.Date(sv, fw.format)
 end
 
 """
@@ -430,7 +430,7 @@ Parse a `Time` value from ASCII bytes using the `DateFormat` stored in `fw`.
 """
 @inline function parse_field(fw::FWTime, buf::AbstractVector{UInt8}, pos::Int, len::Int)
     sv = StringView(@view buf[pos:pos+len-1])
-    return Dates.Time(String(sv), fw.format)
+    return Dates.Time(sv, fw.format)
 end
 
 """
@@ -440,7 +440,7 @@ Parse a `DateTime` value from ASCII bytes using the `DateFormat` stored in `fw`.
 """
 @inline function parse_field(fw::FWDateTime, buf::AbstractVector{UInt8}, pos::Int, len::Int)
     sv = StringView(@view buf[pos:pos+len-1])
-    return Dates.DateTime(String(sv), fw.format)
+    return Dates.DateTime(sv, fw.format)
 end
 
 """

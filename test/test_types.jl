@@ -97,6 +97,29 @@ using FixedWidthParsers: parse_field, FWString, FWInt, FWFloat, FWSkip,
         @test val == Date(2026, 2, 24)
     end
 
+    @testset "FWDate/FWTime/FWDateTime — no per-record String copy" begin
+        # Regression guard: the old path did `Dates.Date(String(sv), fmt)`,
+        # copying the field bytes into a fresh heap String (~48 bytes / call
+        # for an 8-byte date). That additional allocation is easy to
+        # reintroduce accidentally, so we verify end-to-end that parsing a
+        # date-only column allocates below the old path's floor.
+        n = 10_000
+        lines = IOBuffer()
+        for i in 1:n
+            m = lpad(string((i % 12) + 1), 2, "0")
+            d = lpad(string((i % 28) + 1), 2, "0")
+            println(lines, "2026" * m * d)
+        end
+        src = String(take!(lines))
+        schema = FixedWidthSchema(:d => (8, FWDate("yyyymmdd")))
+
+        parse_string(src, schema)  # warm
+        a = @allocated parse_string(src, schema)
+        # Old path measured ~120 B/record; new path ~72 B/record. Threshold at
+        # 100 catches regression with margin for Julia version variation.
+        @test a / n < 100
+    end
+
     @testset "FWFixedPoint" begin
         buf = to_buf("00012345")
         val = parse_field(FWFixedPoint(2), buf, 1, 8)
