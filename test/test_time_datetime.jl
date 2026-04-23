@@ -64,6 +64,33 @@ using FixedWidthParsers: _parse_type_string
         @test result.t == [Time(14, 30), Time(9, 15)]
         rm(path)
     end
+
+    @testset "FWTime fast paths" begin
+        @test FWTime("HHMM")     isa FWTime{:HHMM}
+        @test FWTime("HHMMSS")   isa FWTime{:HHMMSS}
+        @test FWTime("HH:MM")    isa FWTime{:HH_MM}
+        @test FWTime("HH:MM:SS") isa FWTime{:HH_MM_SS}
+        @test FWTime("Hmm")      isa FWTime{:generic}
+        @test FWTime()           isa FWTime{:HH_MM}   # default format
+
+        # Fast-path correctness matches Dates.jl
+        buf = Vector{UInt8}("0930")
+        @test FixedWidthParsers.parse_field(FWTime("HHMM"), buf, 1, 4) == Time(9, 30)
+        buf = Vector{UInt8}("093045")
+        @test FixedWidthParsers.parse_field(FWTime("HHMMSS"), buf, 1, 6) == Time(9, 30, 45)
+        buf = Vector{UInt8}("09:30")
+        @test FixedWidthParsers.parse_field(FWTime("HH:MM"), buf, 1, 5) == Time(9, 30)
+        buf = Vector{UInt8}("09:30:45")
+        @test FixedWidthParsers.parse_field(FWTime("HH:MM:SS"), buf, 1, 8) == Time(9, 30, 45)
+
+        # Invalid time: hour 25 throws through Time(h,m,s) constructor
+        buf = Vector{UInt8}("2530")
+        @test_throws ArgumentError FixedWidthParsers.parse_field(FWTime("HHMM"), buf, 1, 4)
+
+        # ISO fast path validates separators
+        buf = Vector{UInt8}("09X30")
+        @test_throws ArgumentError FixedWidthParsers.parse_field(FWTime("HH:MM"), buf, 1, 5)
+    end
 end
 
 @testset "FWDateTime" begin
@@ -119,5 +146,18 @@ end
         result = parse_file(path, schema)
         @test result.dt == [DateTime(2026, 3, 17, 14, 30), DateTime(2026, 3, 18, 9, 0)]
         rm(path)
+    end
+
+    @testset "FWDateTime fast paths" begin
+        @test FWDateTime("yyyymmddHHMM")   isa FWDateTime{:yyyymmddHHMM}
+        @test FWDateTime("yyyymmddHHMMSS") isa FWDateTime{:yyyymmddHHMMSS}
+        @test FWDateTime("weirdo")         isa FWDateTime{:generic}
+
+        buf = Vector{UInt8}("202603171430")
+        @test FixedWidthParsers.parse_field(FWDateTime("yyyymmddHHMM"), buf, 1, 12) ==
+            DateTime(2026, 3, 17, 14, 30)
+        buf = Vector{UInt8}("20260317143045")
+        @test FixedWidthParsers.parse_field(FWDateTime("yyyymmddHHMMSS"), buf, 1, 14) ==
+            DateTime(2026, 3, 17, 14, 30, 45)
     end
 end

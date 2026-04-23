@@ -119,9 +119,50 @@ downside, and the benefit should be more visible on first-load of large
 files (cold cache) which is a common user workload we can't easily
 isolate here.
 
+### Fast-path date/time parsers — 2026-04-23
+
+Parameterized `FWDate{FP}` / `FWTime{FP}` / `FWDateTime{FP}` on a fast-path
+symbol chosen at construction from the format string. `parse_field`
+specializes per symbol with a byte-level parser; unrecognized formats fall
+back unchanged. Fast paths covered:
+
+| Format        | Example     | FP symbol         |
+|---------------|-------------|-------------------|
+| `yyyymmdd`    | `20260224`  | `:yyyymmdd`       |
+| `yyyy-mm-dd`  | `2026-02-24`| `:yyyy_mm_dd`     |
+| `dduuuyy`     | `10Jan26`   | `:dduuuyy`        |
+| `HHMM`        | `0930`      | `:HHMM`           |
+| `HHMMSS`      | `093045`    | `:HHMMSS`         |
+| `HH:MM`       | `09:30`     | `:HH_MM`          |
+| `HH:MM:SS`    | `09:30:45`  | `:HH_MM_SS`       |
+| `yyyymmddHHMM` | `202603171430` | `:yyyymmddHHMM` |
+| `yyyymmddHHMMSS` | `20260317143045` | `:yyyymmddHHMMSS` |
+
+End-to-end throughput (3 date cols + 2 time cols per record; best of 5):
+
+| Schema                             | Before       | After         | Speedup |
+|------------------------------------|-------------:|--------------:|--------:|
+| 3×`yyyymmdd` + 2×`HHMM` 1M, nt=1   |   1.31 M r/s |  16.95 M r/s  |  12.9×  |
+| 3×`yyyymmdd` + 2×`HHMM` 1M, nt=8   |   4.91 M r/s |  37.58 M r/s  |   7.7×  |
+| 3×`yyyy-mm-dd` 500k, nt=1          |   1.87 M r/s |  28.04 M r/s  |  15.0×  |
+| 3×`yyyy-mm-dd` 500k, nt=8          |   7.46 M r/s |  53.94 M r/s  |   7.2×  |
+| 3×`dduuuyy` 500k, nt=1             |   ~1.6 M r/s |  29.94 M r/s  |  17.7×† |
+| 3×`dduuuyy` 500k, nt=8             |          —   |  36.92 M r/s  |    —    |
+
+<sub>† Measured in a same-session A/B that swapped the specialized `parse_field(::FWDate{:dduuuyy}, ...)` with a generic fallback.</sub>
+
+`dduuuyy` was the biggest win because Dates.jl's month-name token
+(`u`) is particularly expensive — it does locale-aware substring matching
+per record. The fast path does a case-insensitive 3-byte AND-mask
+compare against the 12 English abbreviations.
+
+All 876 tests pass (up from 716; 160 new including a 120-iteration
+fuzz test vs `Dates.Date(s, fmt)` on yyyymmdd / yyyy-mm-dd / dduuuyy).
+
 ## Historical runs
 
 | Date       | Commit    | Notes                                      |
 |------------|-----------|--------------------------------------------|
 | 2026-04-23 | `4fbcf37` | Initial baseline after perf/parse_string commits. |
-| 2026-04-23 | _this branch_ | `madvise(MADV_SEQUENTIAL)` added in `src/io.jl`. |
+| 2026-04-23 | _perf/madvise-sequential_ | `madvise(MADV_SEQUENTIAL)` on mmap.             |
+| 2026-04-23 | _perf/fast-date-parsers_  | Fast-path byte-level date/time/datetime parsers. |

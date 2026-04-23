@@ -142,10 +142,15 @@ FWFloat(pad::Char) = FWFloat(pad, nothing, nothing)
 Field descriptor: parse a `Dates.Date` using the given `DateFormat` pattern
 string (e.g. `"yyyymmdd"`).
 
+For a handful of common formats (`"yyyymmdd"`, `"yyyy-mm-dd"`, `"dduuuyy"`)
+the descriptor is parameterized on a fast-path symbol and `parse_field` uses
+a byte-level parser that bypasses `DateFormat` entirely; other formats fall
+back to the general `Dates.Date(str, fmt)` path.
+
 When `default` is set and `on_error=:default`, a blank field returns `default`
 instead of throwing a `ParseError`.
 """
-struct FWDate
+struct FWDate{FP}
     format::Dates.DateFormat
     format_string::String
     default::Union{Dates.Date, Nothing}
@@ -155,7 +160,7 @@ FWDate(
     fmt::AbstractString;
     default::Union{Dates.Date, Nothing}=nothing,
     transform::Union{Function, Nothing}=nothing,
-) = FWDate(Dates.DateFormat(fmt), String(fmt), default, transform)
+) = FWDate{_date_fast_path(fmt)}(Dates.DateFormat(fmt), String(fmt), default, transform)
 
 """
     FWTime(format::String; default::Union{Dates.Time, Nothing} = nothing)
@@ -165,10 +170,14 @@ string (e.g. `"HH:MM"`, `"HHMM"`).
 
 Note: In Julia's `DateFormat`, uppercase `M` = minute, lowercase `m` = month.
 
+For common formats (`"HHMM"`, `"HHMMSS"`, `"HH:MM"`, `"HH:MM:SS"`) the
+descriptor dispatches to a zero-tokenizer byte-level parser; other formats
+fall back to the general path.
+
 When `default` is set and `on_error=:default`, a blank field returns `default`
 instead of throwing a `ParseError`.
 """
-struct FWTime
+struct FWTime{FP}
     format::Dates.DateFormat
     format_string::String
     default::Union{Dates.Time, Nothing}
@@ -178,7 +187,7 @@ FWTime(
     fmt::AbstractString;
     default::Union{Dates.Time, Nothing}=nothing,
     transform::Union{Function, Nothing}=nothing,
-) = FWTime(Dates.DateFormat(fmt), String(fmt), default, transform)
+) = FWTime{_time_fast_path(fmt)}(Dates.DateFormat(fmt), String(fmt), default, transform)
 FWTime() = FWTime("HH:MM")
 
 """
@@ -189,10 +198,13 @@ string (e.g. `"yyyy-mm-ddTHH:MM:SS"`, `"yyyymmddHHMM"`).
 
 Note: In Julia's `DateFormat`, lowercase `m` = month, uppercase `M` = minute.
 
+Fast paths for `"yyyymmddHHMM"` and `"yyyymmddHHMMSS"`; other formats fall
+back to the general path.
+
 When `default` is set and `on_error=:default`, a blank field returns `default`
 instead of throwing a `ParseError`.
 """
-struct FWDateTime
+struct FWDateTime{FP}
     format::Dates.DateFormat
     format_string::String
     default::Union{Dates.DateTime, Nothing}
@@ -202,8 +214,28 @@ FWDateTime(
     fmt::AbstractString;
     default::Union{Dates.DateTime, Nothing}=nothing,
     transform::Union{Function, Nothing}=nothing,
-) = FWDateTime(Dates.DateFormat(fmt), String(fmt), default, transform)
+) = FWDateTime{_datetime_fast_path(fmt)}(Dates.DateFormat(fmt), String(fmt), default, transform)
 FWDateTime() = FWDateTime("yyyy-mm-ddTHH:MM:SS")
+
+# Map format strings to fast-path symbols. Unknown formats resolve to :generic
+# which routes `parse_field` through the general `Dates.jl` path unchanged.
+_date_fast_path(fmt::AbstractString) =
+    fmt == "yyyymmdd"   ? :yyyymmdd   :
+    fmt == "yyyy-mm-dd" ? :yyyy_mm_dd :
+    fmt == "dduuuyy"    ? :dduuuyy    :
+    :generic
+
+_time_fast_path(fmt::AbstractString) =
+    fmt == "HHMM"     ? :HHMM     :
+    fmt == "HHMMSS"   ? :HHMMSS   :
+    fmt == "HH:MM"    ? :HH_MM    :
+    fmt == "HH:MM:SS" ? :HH_MM_SS :
+    :generic
+
+_datetime_fast_path(fmt::AbstractString) =
+    fmt == "yyyymmddHHMM"   ? :yyyymmddHHMM   :
+    fmt == "yyyymmddHHMMSS" ? :yyyymmddHHMMSS :
+    :generic
 
 """
     FWFixedPoint(decimals::Int; default::Union{Float64, Nothing} = nothing)
@@ -416,31 +448,166 @@ end
 """
     parse_field(fw::FWDate, buf, pos, len) → Dates.Date
 
-Parse a `Date` value from ASCII bytes using the `DateFormat` stored in `fw`.
+Parse a `Date` value from ASCII bytes. For known `FP` parameter values, a
+specialized byte-level parser is used; `FWDate{:generic}` falls back to the
+`Dates.DateFormat` interpreter.
 """
-@inline function parse_field(fw::FWDate, buf::AbstractVector{UInt8}, pos::Int, len::Int)
+@inline function parse_field(fw::FWDate{:yyyymmdd}, buf::AbstractVector{UInt8}, pos::Int, len::Int)
+    len == 8 || return _parse_date_generic(fw, buf, pos, len)
+    @inbounds begin
+        y = 1000*_digit(buf[pos])   + 100*_digit(buf[pos+1]) + 10*_digit(buf[pos+2]) + _digit(buf[pos+3])
+        m = 10*_digit(buf[pos+4])   + _digit(buf[pos+5])
+        d = 10*_digit(buf[pos+6])   + _digit(buf[pos+7])
+    end
+    return Dates.Date(y, m, d)
+end
+
+@inline function parse_field(fw::FWDate{:yyyy_mm_dd}, buf::AbstractVector{UInt8}, pos::Int, len::Int)
+    (len == 10 &&
+        @inbounds(buf[pos+4] == UInt8('-') && buf[pos+7] == UInt8('-'))) ||
+        return _parse_date_generic(fw, buf, pos, len)
+    @inbounds begin
+        y = 1000*_digit(buf[pos])   + 100*_digit(buf[pos+1]) + 10*_digit(buf[pos+2]) + _digit(buf[pos+3])
+        m = 10*_digit(buf[pos+5])   + _digit(buf[pos+6])
+        d = 10*_digit(buf[pos+8])   + _digit(buf[pos+9])
+    end
+    return Dates.Date(y, m, d)
+end
+
+@inline function parse_field(fw::FWDate{:dduuuyy}, buf::AbstractVector{UInt8}, pos::Int, len::Int)
+    len == 7 || return _parse_date_generic(fw, buf, pos, len)
+    @inbounds begin
+        d = 10*_digit(buf[pos])  + _digit(buf[pos+1])
+        m = _month_abbrev(buf[pos+2], buf[pos+3], buf[pos+4])
+        y = 10*_digit(buf[pos+5]) + _digit(buf[pos+6])
+    end
+    return Dates.Date(y, m, d)
+end
+
+@inline parse_field(fw::FWDate{:generic}, buf::AbstractVector{UInt8}, pos::Int, len::Int) =
+    _parse_date_generic(fw, buf, pos, len)
+
+@inline function _parse_date_generic(fw::FWDate, buf::AbstractVector{UInt8}, pos::Int, len::Int)
     sv = StringView(@view buf[pos:pos+len-1])
     return Dates.Date(sv, fw.format)
 end
 
 """
     parse_field(fw::FWTime, buf, pos, len) → Dates.Time
-
-Parse a `Time` value from ASCII bytes using the `DateFormat` stored in `fw`.
 """
-@inline function parse_field(fw::FWTime, buf::AbstractVector{UInt8}, pos::Int, len::Int)
+@inline function parse_field(fw::FWTime{:HHMM}, buf::AbstractVector{UInt8}, pos::Int, len::Int)
+    len == 4 || return _parse_time_generic(fw, buf, pos, len)
+    @inbounds begin
+        h  = 10*_digit(buf[pos])   + _digit(buf[pos+1])
+        mi = 10*_digit(buf[pos+2]) + _digit(buf[pos+3])
+    end
+    return Dates.Time(h, mi)
+end
+
+@inline function parse_field(fw::FWTime{:HHMMSS}, buf::AbstractVector{UInt8}, pos::Int, len::Int)
+    len == 6 || return _parse_time_generic(fw, buf, pos, len)
+    @inbounds begin
+        h  = 10*_digit(buf[pos])   + _digit(buf[pos+1])
+        mi = 10*_digit(buf[pos+2]) + _digit(buf[pos+3])
+        s  = 10*_digit(buf[pos+4]) + _digit(buf[pos+5])
+    end
+    return Dates.Time(h, mi, s)
+end
+
+@inline function parse_field(fw::FWTime{:HH_MM}, buf::AbstractVector{UInt8}, pos::Int, len::Int)
+    (len == 5 && @inbounds(buf[pos+2] == UInt8(':'))) ||
+        return _parse_time_generic(fw, buf, pos, len)
+    @inbounds begin
+        h  = 10*_digit(buf[pos])   + _digit(buf[pos+1])
+        mi = 10*_digit(buf[pos+3]) + _digit(buf[pos+4])
+    end
+    return Dates.Time(h, mi)
+end
+
+@inline function parse_field(fw::FWTime{:HH_MM_SS}, buf::AbstractVector{UInt8}, pos::Int, len::Int)
+    (len == 8 &&
+        @inbounds(buf[pos+2] == UInt8(':') && buf[pos+5] == UInt8(':'))) ||
+        return _parse_time_generic(fw, buf, pos, len)
+    @inbounds begin
+        h  = 10*_digit(buf[pos])   + _digit(buf[pos+1])
+        mi = 10*_digit(buf[pos+3]) + _digit(buf[pos+4])
+        s  = 10*_digit(buf[pos+6]) + _digit(buf[pos+7])
+    end
+    return Dates.Time(h, mi, s)
+end
+
+@inline parse_field(fw::FWTime{:generic}, buf::AbstractVector{UInt8}, pos::Int, len::Int) =
+    _parse_time_generic(fw, buf, pos, len)
+
+@inline function _parse_time_generic(fw::FWTime, buf::AbstractVector{UInt8}, pos::Int, len::Int)
     sv = StringView(@view buf[pos:pos+len-1])
     return Dates.Time(sv, fw.format)
 end
 
 """
     parse_field(fw::FWDateTime, buf, pos, len) → Dates.DateTime
-
-Parse a `DateTime` value from ASCII bytes using the `DateFormat` stored in `fw`.
 """
-@inline function parse_field(fw::FWDateTime, buf::AbstractVector{UInt8}, pos::Int, len::Int)
+@inline function parse_field(fw::FWDateTime{:yyyymmddHHMM}, buf::AbstractVector{UInt8}, pos::Int, len::Int)
+    len == 12 || return _parse_datetime_generic(fw, buf, pos, len)
+    @inbounds begin
+        y  = 1000*_digit(buf[pos])   + 100*_digit(buf[pos+1]) + 10*_digit(buf[pos+2])  + _digit(buf[pos+3])
+        mo = 10*_digit(buf[pos+4])   + _digit(buf[pos+5])
+        d  = 10*_digit(buf[pos+6])   + _digit(buf[pos+7])
+        h  = 10*_digit(buf[pos+8])   + _digit(buf[pos+9])
+        mi = 10*_digit(buf[pos+10])  + _digit(buf[pos+11])
+    end
+    return Dates.DateTime(y, mo, d, h, mi)
+end
+
+@inline function parse_field(fw::FWDateTime{:yyyymmddHHMMSS}, buf::AbstractVector{UInt8}, pos::Int, len::Int)
+    len == 14 || return _parse_datetime_generic(fw, buf, pos, len)
+    @inbounds begin
+        y  = 1000*_digit(buf[pos])   + 100*_digit(buf[pos+1]) + 10*_digit(buf[pos+2])  + _digit(buf[pos+3])
+        mo = 10*_digit(buf[pos+4])   + _digit(buf[pos+5])
+        d  = 10*_digit(buf[pos+6])   + _digit(buf[pos+7])
+        h  = 10*_digit(buf[pos+8])   + _digit(buf[pos+9])
+        mi = 10*_digit(buf[pos+10])  + _digit(buf[pos+11])
+        s  = 10*_digit(buf[pos+12])  + _digit(buf[pos+13])
+    end
+    return Dates.DateTime(y, mo, d, h, mi, s)
+end
+
+@inline parse_field(fw::FWDateTime{:generic}, buf::AbstractVector{UInt8}, pos::Int, len::Int) =
+    _parse_datetime_generic(fw, buf, pos, len)
+
+@inline function _parse_datetime_generic(fw::FWDateTime, buf::AbstractVector{UInt8}, pos::Int, len::Int)
     sv = StringView(@view buf[pos:pos+len-1])
     return Dates.DateTime(sv, fw.format)
+end
+
+# ---------------------------------------------------------------------------
+# Byte-level helpers shared by date/time fast paths
+# ---------------------------------------------------------------------------
+
+@inline _digit(b::UInt8) = Int(b) - Int('0')
+
+"""
+    _month_abbrev(b1, b2, b3) → Int
+
+Case-insensitive 3-letter English month-abbreviation lookup. Returns the
+month number 1..12; throws `ArgumentError` on an unknown triplet. ASCII-only;
+the `& 0xDF` trick uppercases letters in one op.
+"""
+@inline function _month_abbrev(b1::UInt8, b2::UInt8, b3::UInt8)
+    u1 = b1 & 0xDF; u2 = b2 & 0xDF; u3 = b3 & 0xDF
+    u1 == UInt8('J') && u2 == UInt8('A') && u3 == UInt8('N') && return 1
+    u1 == UInt8('F') && u2 == UInt8('E') && u3 == UInt8('B') && return 2
+    u1 == UInt8('M') && u2 == UInt8('A') && u3 == UInt8('R') && return 3
+    u1 == UInt8('A') && u2 == UInt8('P') && u3 == UInt8('R') && return 4
+    u1 == UInt8('M') && u2 == UInt8('A') && u3 == UInt8('Y') && return 5
+    u1 == UInt8('J') && u2 == UInt8('U') && u3 == UInt8('N') && return 6
+    u1 == UInt8('J') && u2 == UInt8('U') && u3 == UInt8('L') && return 7
+    u1 == UInt8('A') && u2 == UInt8('U') && u3 == UInt8('G') && return 8
+    u1 == UInt8('S') && u2 == UInt8('E') && u3 == UInt8('P') && return 9
+    u1 == UInt8('O') && u2 == UInt8('C') && u3 == UInt8('T') && return 10
+    u1 == UInt8('N') && u2 == UInt8('O') && u3 == UInt8('V') && return 11
+    u1 == UInt8('D') && u2 == UInt8('E') && u3 == UInt8('C') && return 12
+    throw(ArgumentError("unknown 3-letter month abbreviation: \"$(Char(b1))$(Char(b2))$(Char(b3))\""))
 end
 
 """

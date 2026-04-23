@@ -19,6 +19,9 @@ const BENCH_DIR   = "/tmp/fwp_bench"
 const PATH_1M     = joinpath(BENCH_DIR, "1M.dat")
 const PATH_5M     = joinpath(BENCH_DIR, "5M.dat")
 const PATH_WIDE   = joinpath(BENCH_DIR, "wide_500k.dat")
+const PATH_DATES  = joinpath(BENCH_DIR, "dates_1M.dat")
+const PATH_ISO    = joinpath(BENCH_DIR, "iso_500k.dat")
+const PATH_DDMMY  = joinpath(BENCH_DIR, "dduuuyy_500k.dat")
 
 # Narrow: same layout as benchmark/benchmarks.jl (24-byte records, 7 fields)
 const NARROW = FixedWidthSchema(
@@ -43,6 +46,29 @@ end
 
 # Wide: 50 × 4-byte int columns (200-byte records)
 const WIDE = FixedWidthSchema([Symbol("f", i) => (4, FWInt()) for i in 1:50]...)
+
+# Date-heavy: 3 Date(yyyymmdd) + 2 Time(HHMM) = 32 bytes per record
+const DATES = FixedWidthSchema(
+    :flight_date => (8, FWDate("yyyymmdd")),
+    :eff_date    => (8, FWDate("yyyymmdd")),
+    :exp_date    => (8, FWDate("yyyymmdd")),
+    :dep_time    => (4, FWTime("HHMM")),
+    :arr_time    => (4, FWTime("HHMM")),
+)
+
+# ISO dates: 3 × yyyy-mm-dd = 30 bytes per record
+const ISO = FixedWidthSchema(
+    :d1 => (10, FWDate("yyyy-mm-dd")),
+    :d2 => (10, FWDate("yyyy-mm-dd")),
+    :d3 => (10, FWDate("yyyy-mm-dd")),
+)
+
+# dduuuyy (airline/banking): 3 × dduuuyy = 21 bytes per record
+const DDMMY = FixedWidthSchema(
+    :issue  => (7, FWDate("dduuuyy")),
+    :expiry => (7, FWDate("dduuuyy")),
+    :travel => (7, FWDate("dduuuyy")),
+)
 
 function gen_narrow(path, n)
     carriers = ("UA", "DL", "AA", "WN")
@@ -74,11 +100,49 @@ function gen_wide(path, n)
     end
 end
 
+function gen_dates(path, n)
+    open(path, "w") do io
+        for i in 1:n
+            m1 = lpad(string((i % 12) + 1), 2, '0'); d1 = lpad(string((i % 28) + 1), 2, '0')
+            m2 = lpad(string(((i+3) % 12) + 1), 2, '0'); d2 = lpad(string(((i+5) % 28) + 1), 2, '0')
+            m3 = lpad(string(((i+7) % 12) + 1), 2, '0'); d3 = lpad(string(((i+11) % 28) + 1), 2, '0')
+            hh = lpad(string(i % 24), 2, '0'); mm = lpad(string((i * 7) % 60), 2, '0')
+            write(io, "2026", m1, d1, "2026", m2, d2, "2026", m3, d3, hh, mm, hh, mm, '\n')
+        end
+    end
+end
+
+function gen_iso(path, n)
+    open(path, "w") do io
+        for i in 1:n
+            m1 = lpad(string((i % 12) + 1), 2, '0'); d1 = lpad(string((i % 28) + 1), 2, '0')
+            m2 = lpad(string(((i+3) % 12) + 1), 2, '0'); d2 = lpad(string(((i+5) % 28) + 1), 2, '0')
+            m3 = lpad(string(((i+7) % 12) + 1), 2, '0'); d3 = lpad(string(((i+11) % 28) + 1), 2, '0')
+            write(io, "2026-", m1, "-", d1, "2026-", m2, "-", d2, "2026-", m3, "-", d3, '\n')
+        end
+    end
+end
+
+function gen_dduuuyy(path, n)
+    months = ("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
+    open(path, "w") do io
+        for i in 1:n
+            d1 = lpad(string((i     % 28)+1), 2, '0') * months[((i    ) % 12)+1] * lpad(string( i      % 100), 2, '0')
+            d2 = lpad(string(((i+3) % 28)+1), 2, '0') * months[((i+ 2) % 12)+1] * lpad(string((i+17) % 100), 2, '0')
+            d3 = lpad(string(((i+7) % 28)+1), 2, '0') * months[((i+ 5) % 12)+1] * lpad(string((i+41) % 100), 2, '0')
+            write(io, d1, d2, d3, '\n')
+        end
+    end
+end
+
 function ensure_files()
     mkpath(BENCH_DIR)
-    isfile(PATH_1M)   || (println("  generating 1M narrow..."); gen_narrow(PATH_1M,   1_000_000))
-    isfile(PATH_5M)   || (println("  generating 5M narrow..."); gen_narrow(PATH_5M,   5_000_000))
-    isfile(PATH_WIDE) || (println("  generating 500k wide..."); gen_wide(PATH_WIDE,     500_000))
+    isfile(PATH_1M)    || (println("  generating 1M narrow...");  gen_narrow(PATH_1M,    1_000_000))
+    isfile(PATH_5M)    || (println("  generating 5M narrow...");  gen_narrow(PATH_5M,    5_000_000))
+    isfile(PATH_WIDE)  || (println("  generating 500k wide...");  gen_wide(PATH_WIDE,     500_000))
+    isfile(PATH_DATES) || (println("  generating 1M dates...");   gen_dates(PATH_DATES,  1_000_000))
+    isfile(PATH_ISO)   || (println("  generating 500k iso...");   gen_iso(PATH_ISO,       500_000))
+    isfile(PATH_DDMMY) || (println("  generating 500k dduuuyy..."); gen_dduuuyy(PATH_DDMMY, 500_000))
 end
 
 function bench(label, n_records, f, reps::Int=5)
@@ -127,6 +191,14 @@ function main()
         t = bench("ntasks=$nt", 500_000, () -> parse_file(PATH_WIDE, WIDE; ntasks=nt))
         @printf("    (%.2fx over ntasks=1)\n", t1 / t)
     end
+
+    println("\n# Date-heavy schemas")
+    bench("3×yyyymmdd + 2×HHMM  1M  ntasks=1",   1_000_000, () -> parse_file(PATH_DATES, DATES))
+    bench("3×yyyymmdd + 2×HHMM  1M  ntasks=8",   1_000_000, () -> parse_file(PATH_DATES, DATES; ntasks=8))
+    bench("3×yyyy-mm-dd         500k ntasks=1",    500_000, () -> parse_file(PATH_ISO,   ISO))
+    bench("3×yyyy-mm-dd         500k ntasks=8",    500_000, () -> parse_file(PATH_ISO,   ISO;   ntasks=8))
+    bench("3×dduuuyy            500k ntasks=1",    500_000, () -> parse_file(PATH_DDMMY, DDMMY))
+    bench("3×dduuuyy            500k ntasks=8",    500_000, () -> parse_file(PATH_DDMMY, DDMMY; ntasks=8))
 end
 
 main()
