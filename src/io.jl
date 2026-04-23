@@ -60,6 +60,7 @@ mutable struct MmapSource <: AbstractSource
             return new(UInt8[], io, record_width, 0, record_width, 0)
         end
         buf = Mmap.mmap(io, Vector{UInt8}, fsize)
+        _advise_sequential(buf)
         nl = detect_newline(buf, record_width)
         stride = record_width + nl
         n = fsize ÷ stride
@@ -69,6 +70,18 @@ mutable struct MmapSource <: AbstractSource
         end
         return new(buf, io, record_width, nl, stride, n)
     end
+end
+
+# MADV_SEQUENTIAL == 2 on Linux and macOS. Failure is ignored — madvise is
+# strictly an optimization hint that tells the kernel to prefetch pages
+# aggressively and drop them after we pass.
+@static if Sys.isunix()
+    @inline function _advise_sequential(buf::Vector{UInt8})
+        @ccall madvise(pointer(buf)::Ptr{Cvoid}, length(buf)::Csize_t, 2::Cint)::Cint
+        return buf
+    end
+else
+    @inline _advise_sequential(buf::Vector{UInt8}) = buf
 end
 
 """
