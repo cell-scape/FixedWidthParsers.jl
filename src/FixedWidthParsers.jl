@@ -18,7 +18,7 @@ export parse_field
 export FixedWidthSchema
 export parse_record
 export eachrecord
-export parse_file
+export parse_file, parse_string, parse_bytes
 export @fixedwidth, schema
 export load_schema
 export MultiRecordSchema

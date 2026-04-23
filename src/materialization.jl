@@ -88,6 +88,79 @@ function parse_file(
 )
     schema = _apply_column_selection(schema, select, exclude)
     src = MmapSource(path, record_width(schema))
+    return _parse_from_source(schema, src; columnar=columnar, on_error=on_error,
+        ntasks=ntasks, skip_header=skip_header, skip_footer=skip_footer, comment=comment)
+end
+
+"""
+    parse_file(io::IO, schema::FixedWidthSchema; kwargs...) → StructArray or Vector{NamedTuple}
+
+Parse fixed-width data from an `IO` stream (pipe, `IOBuffer`, `stdin`). The
+entire stream is read into memory immediately. Supports the same keyword
+arguments as the path-based overload.
+"""
+function parse_file(
+    io::IO,
+    schema::FixedWidthSchema;
+    columnar::Bool=true,
+    on_error::Symbol=:strict,
+    ntasks::Int=1,
+    skip_header::Int=0,
+    skip_footer::Int=0,
+    comment::Union{UInt8, Nothing}=nothing,
+    select::Union{AbstractVector{Symbol}, Nothing}=nothing,
+    exclude::Union{AbstractVector{Symbol}, Nothing}=nothing,
+)
+    schema = _apply_column_selection(schema, select, exclude)
+    src = ChunkedSource(io, record_width(schema))
+    return _parse_from_source(schema, src; columnar=columnar, on_error=on_error,
+        ntasks=ntasks, skip_header=skip_header, skip_footer=skip_footer, comment=comment)
+end
+
+"""
+    parse_string(s::AbstractString, schema; kwargs...) → StructArray or Vector{NamedTuple}
+
+Parse fixed-width data from an in-memory string. Equivalent to
+`parse_file(IOBuffer(s), schema; kwargs...)`.
+"""
+parse_string(s::AbstractString, schema::FixedWidthSchema; kwargs...) =
+    parse_file(IOBuffer(s), schema; kwargs...)
+
+"""
+    parse_bytes(b::AbstractVector{UInt8}, schema; kwargs...) → StructArray or Vector{NamedTuple}
+
+Parse fixed-width data from an in-memory byte vector. Equivalent to
+`parse_file(IOBuffer(b), schema; kwargs...)`.
+"""
+parse_bytes(b::AbstractVector{UInt8}, schema::FixedWidthSchema; kwargs...) =
+    parse_file(IOBuffer(b), schema; kwargs...)
+
+# Fallback for @fixedwidth struct types: the macro emits a path-based method,
+# so route IO/string/bytes through the runtime schema path.
+parse_file(io::IO, ::Type{T}; kwargs...) where {T} =
+    parse_file(io, schema(T); kwargs...)
+parse_string(s::AbstractString, ::Type{T}; kwargs...) where {T} =
+    parse_file(IOBuffer(s), schema(T); kwargs...)
+parse_bytes(b::AbstractVector{UInt8}, ::Type{T}; kwargs...) where {T} =
+    parse_file(IOBuffer(b), schema(T); kwargs...)
+
+"""
+    _parse_from_source(schema, src; kwargs...) → StructArray or Vector{NamedTuple}
+
+Source-agnostic body of `parse_file` for `FixedWidthSchema`. Accepts any
+`AbstractSource` so both `MmapSource` (file-backed) and `ChunkedSource`
+(IO-backed) share the same parsing pipeline.
+"""
+function _parse_from_source(
+    schema::FixedWidthSchema,
+    src::AbstractSource;
+    columnar::Bool=true,
+    on_error::Symbol=:strict,
+    ntasks::Int=1,
+    skip_header::Int=0,
+    skip_footer::Int=0,
+    comment::Union{UInt8, Nothing}=nothing,
+)
     n = record_count(src)
 
     if n == 0
@@ -394,7 +467,7 @@ When `on_error === :lenient` column element types are `Union{T, Missing}`.
 """
 function _parse_columnar(
     schema::FixedWidthSchema,
-    src::MmapSource,
+    src::AbstractSource,
     buf::AbstractVector{UInt8},
     n::Int,
     on_error::Symbol,
@@ -1032,7 +1105,7 @@ Row-oriented parse with error handling.
 """
 function _parse_rows(
     schema::FixedWidthSchema,
-    src::MmapSource,
+    src::AbstractSource,
     buf::AbstractVector{UInt8},
     n::Int,
     on_error::Symbol,

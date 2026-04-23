@@ -267,6 +267,46 @@ function parse_file(
     comment::Union{UInt8, Nothing}=nothing,
 )
     src = MmapSource(path, ms.record_width)
+    return _parse_multi_from_source(ms, src;
+        on_error=on_error, ntasks=ntasks, skip_header=skip_header,
+        skip_footer=skip_footer, comment=comment)
+end
+
+"""
+    parse_file(io::IO, ms::MultiRecordSchema; kwargs...) → Dict{Symbol, StructArray}
+
+Parse a multi-record fixed-width stream from `io` (pipe, `IOBuffer`, `stdin`).
+The entire stream is read into memory immediately.
+"""
+function parse_file(
+    io::IO,
+    ms::MultiRecordSchema;
+    on_error::Symbol=:strict,
+    ntasks::Int=1,
+    skip_header::Int=0,
+    skip_footer::Int=0,
+    comment::Union{UInt8, Nothing}=nothing,
+)
+    src = ChunkedSource(io, ms.record_width)
+    return _parse_multi_from_source(ms, src;
+        on_error=on_error, ntasks=ntasks, skip_header=skip_header,
+        skip_footer=skip_footer, comment=comment)
+end
+
+parse_string(s::AbstractString, ms::MultiRecordSchema; kwargs...) =
+    parse_file(IOBuffer(s), ms; kwargs...)
+parse_bytes(b::AbstractVector{UInt8}, ms::MultiRecordSchema; kwargs...) =
+    parse_file(IOBuffer(b), ms; kwargs...)
+
+function _parse_multi_from_source(
+    ms::MultiRecordSchema,
+    src::AbstractSource;
+    on_error::Symbol=:strict,
+    ntasks::Int=1,
+    skip_header::Int=0,
+    skip_footer::Int=0,
+    comment::Union{UInt8, Nothing}=nothing,
+)
     try
         n = record_count(src)
         buf = buffer(src)

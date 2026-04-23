@@ -31,4 +31,5 @@ using StructArrays
     include("test_multi_schema_loading.jl")
     include("test_discriminator_robustness.jl")
     include("test_bundled_schemas.jl")
+    include("test_parse_string.jl")
 end
