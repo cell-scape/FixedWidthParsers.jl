@@ -4,6 +4,28 @@ All notable changes to FixedWidthParsers.jl are documented here. The project
 follows [Semantic Versioning](https://semver.org/) (where "major" is the
 second digit during 0.x).
 
+## v0.3.1 — 2026-04-24
+
+Additive release. No breaking changes; new features plus docs.
+
+### Added
+
+- **DuckDB package extension** (`DuckDBExt`). [`to_duckdb(con, table_name, source, schema; kwargs...)`](@ref)
+  streams a fixed-width file (or `IO`) into a DuckDB table in bounded-memory
+  chunks. Supports `chunk_size`, `create_table` / `replace_table`, full
+  `parse_file` kwargs, and `nworkers` for parallel concurrent inserts on
+  insert-bound workloads (~2.3× at 8 workers on a narrow 1M-row schema).
+  Activates when both `DuckDB.jl` and `DBInterface.jl` are loaded.
+- **Documentation overhaul.** Three new tutorials
+  (Quick Start / Handling Real Data / Streaming to DuckDB) plus split
+  User Guide, DuckDB Extension, and Performance reference pages.
+- **Root-level `CHANGELOG.md`** (this file).
+
+### Changed
+
+- `README.md` rewritten to track the v0.3.x feature set and link into the
+  Documenter site.
+
 ## v0.3.0 — 2026-04-24
 
 Performance-focused release. Big speedups on the row-oriented path and

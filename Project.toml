@@ -1,6 +1,6 @@
 name = "FixedWidthParsers"
 uuid = "394be9c0-75bc-4ced-998b-f5a708a320e8"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Bradley Dowling <brad.religion@ramones.org>"]
 
 [deps]
