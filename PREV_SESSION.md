@@ -7,8 +7,10 @@ every session and commit it. Read it at the start of every session.
 
 ## Release state
 
-- **Current version:** `v0.3.1` (tag `v0.3.1` at commit `195ffe1`, pushed to
-  `origin/main`).
+- **Current version:** `v0.3.1` (tag `v0.3.1` at commit `195ffe1`).
+- **Latest commit on `main`:** `234bfc3` — adds this session-handoff
+  infrastructure (`PREV_SESSION.md` + `CLAUDE.md` protocol). Post-tag,
+  non-functional; no release needed for it.
 - **Not registered** in Julia's General registry. The user has said this is
   mostly an internal package and may move off public GitHub; registration is
   deferred. Consumers install via `Pkg.add(url = "…", rev = "v0.3.1")`.
@@ -153,17 +155,19 @@ JULIA_NUM_THREADS=8 julia --project --threads=8 -e 'using Pkg; Pkg.test()' | tai
 
 ## Handoff notes from this session (2026-04-24)
 
-- Clean release point at `v0.3.1`. No in-progress work; all tasks completed
-  before session end.
-- No stale Claude-session branches on origin. `main` is the only branch.
-- 4314 tests pass as of `195ffe1`.
+- Clean release point at `v0.3.1`. No in-progress work.
+- `main` is the only branch on origin — all perf/feat/docs branches merged
+  and deleted after release.
+- 4314 tests pass as of `195ffe1` (run with `--threads=8`).
 - `docs/build/` is gitignored and builds cleanly with no Documenter
   warnings or broken refs.
-- The `docs/plans/` directory holds design docs from early development of
-  the package (pre-this-session). Don't treat as current spec — it's
-  archaeology.
-- `docs/superpowers/` directory exists (empty or cached superpowers skill
-  content from a prior Claude session); harmless.
-- User preferences: concise, technical, data-driven; dislikes trailing
-  summaries that duplicate the diff; values honest "we tried X and it
-  didn't work" writeups over optimistic hand-waving.
+- `docs/plans/` and `docs/superpowers/` are archaeology — don't treat as
+  current spec.
+- This session-handoff protocol is itself brand new (commit `234bfc3`).
+  You're the first session reading `PREV_SESSION.md`. Rewriting this file
+  to fit the *current* session's shape is encouraged — don't preserve
+  content just because it was here.
+- User preferences observed this session: concise and technical;
+  data-driven with same-session A/B for small perf deltas; dislikes
+  trailing summaries that duplicate the diff; values honest "we tried X
+  and it didn't help" writeups over optimistic hand-waving.
