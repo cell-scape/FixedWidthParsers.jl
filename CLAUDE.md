@@ -1,5 +1,15 @@
 # CLAUDE.md — FixedWidthParsers.jl
 
+## Session handoff
+- **At session start:** read `PREV_SESSION.md` in the repo root. It contains
+  the release state, established conventions, open directions we've already
+  investigated, and file-by-file orientation that's more current than
+  anything derivable from the code.
+- **At session end:** update `PREV_SESSION.md` with the most important
+  things the next session will need to know — what shipped, what's still
+  open, any conventions or user preferences that emerged during the
+  session — and commit it. Don't just append; rewrite for brevity.
+
 ## Overview
 High-performance fixed-width file parser for Julia. Mmap IO + @generated inner loops.
 
