@@ -186,11 +186,57 @@ Test count: 716 → 736 (new: concrete-eltype guard, value-match vs
 columnar, lenient Union{T,Missing} field types, indexed variant,
 throughput regression guard ≤ 10× columnar).
 
+## Investigations
+
+### Parallel columnar shape — 2026-04-23
+
+Hypothesis: the current per-column shape (`for col; @sync for r; @spawn
+fill; end; end` → N barriers, N×T spawns) is wasteful on wide schemas,
+and inverting to row-chunk parallelism (one `@sync`, T tasks each
+filling all columns) would improve 8-thread efficiency from 44 % to
+~70 % on wide workloads.
+
+Experiment: three shapes, same-session A/B, best of 10:
+
+| Shape                                     | Description                              |
+|-------------------------------------------|------------------------------------------|
+| OLD (current)                             | `for col` outside; `@sync` + T spawns per column. N barriers, N×T tasks. |
+| NEW (row-chunk)                           | One `@sync`; T tasks each loop `for col` filling all columns for its row slice. 1 barrier, T tasks. |
+| FLAT                                      | One `@sync`; flatten `col × range` into a single loop. 1 barrier, N×T tasks. |
+
+Results (best time in ★):
+
+| Config                        | OLD              | NEW (row-chunk)  | FLAT             |
+|-------------------------------|------------------|------------------|------------------|
+| narrow 1M ntasks=2            |  22.31 ms        |  22.21 ms        |  22.21 ms ★      |
+| narrow 1M ntasks=4            |  11.79 ms        |  12.11 ms        |  11.69 ms ★      |
+| narrow 1M ntasks=8            |  10.09 ms        |  10.09 ms        |  10.04 ms ★      |
+| narrow 5M ntasks=8            |  50.84 ms ★      |  60.62 ms        |  57.55 ms        |
+| wide 500k ntasks=2            | 417.23 ms        | 408.86 ms ★      | 413.88 ms        |
+| wide 500k ntasks=4            | 211.16 ms ★      | 215.03 ms        | 212.69 ms        |
+| wide 500k ntasks=8            | 202.99 ms        | 197.22 ms        | 192.75 ms ★      |
+
+Verdict: **no shape dominates.** Differences are within ±5 % noise except
+narrow 5M ntasks=8 where the current shape is clearly best (+15 % over
+row-chunk). The hypothesis that the per-column shape is wasteful is
+wrong at this schema size; the current shape is already near-optimal.
+
+Decision: **keep the existing per-column shape**, but ship the new
+correctness regression tests (wide-schema parallel, indexed variant,
+default mode under parallel, strict-mode line pinpointing) as durable
+guards that outlast any future shape changes.
+
+Further speedups on parallel columnar would likely need a different
+lever: batch-parse multiple adjacent records per call (SIMD-friendly),
+or adaptive partitioning when records have variable sizes. Both out of
+scope here.
+
 ## Historical runs
 
 | Date       | Commit    | Notes                                      |
 |------------|-----------|--------------------------------------------|
 | 2026-04-23 | `4fbcf37` | Initial baseline after perf/parse_string commits. |
-| 2026-04-23 | _perf/madvise-sequential_ | `madvise(MADV_SEQUENTIAL)` on mmap. |
-| 2026-04-23 | _perf/fast-date-parsers_  | Fast-path byte-level date/time/datetime parsers. |
-| 2026-04-23 | _perf/fast-row-parse_     | Row-oriented path rewritten as columnar + transpose. |
+| 2026-04-23 | _perf/madvise-sequential_  | `madvise(MADV_SEQUENTIAL)` on mmap. |
+| 2026-04-23 | _perf/fast-date-parsers_   | Fast-path byte-level date/time/datetime parsers. |
+| 2026-04-23 | _perf/fast-row-parse_      | Row-oriented path rewritten as columnar + transpose. |
+| 2026-04-23 | _perf/parallel-row-chunks_ | Investigated 3 parallel shapes; no clear winner — current shape kept. New parallel regression tests added. |

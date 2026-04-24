@@ -491,6 +491,12 @@ function _parse_columnar(
     # Function-barrier fill: one call per column.  Julia specializes
     # _fill_column! on the concrete descriptor type, eliminating dynamic
     # dispatch inside the inner (per-record) loop.
+    #
+    # Shape: for each column, spawn ntasks tasks over disjoint row ranges.
+    # We investigated (a) flattening into one @sync barrier and (b) inverting
+    # to row-chunk parallelism (one task per row range filling all columns)
+    # — neither produced a measurable win, and row-chunk regressed by 15–25 %
+    # on wide/large workloads. See `benchmark/RESULTS.md` for the full A/B.
     for (col_idx, f) in enumerate(ns_fields)
         if length(ranges) == 1
             _fill_column!(columns[col_idx], f.type, f.width, f.offset, f.name, buf, src, ranges[1], on_error)

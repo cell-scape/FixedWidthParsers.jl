@@ -144,4 +144,107 @@ using FixedWidthParsers: _partition_ranges, @fixedwidth, Skip
         @test length(result) == 0
         rm(path)
     end
+
+    # ----- Row-chunk-parallel shape tests (added with the reshape) -----
+
+    @testset "wide schema parallel correctness (50 int columns)" begin
+        # Stresses the new row-chunk shape: many columns + multi-task row
+        # partitioning. Verifies values match ntasks=1 baseline exactly.
+        wide = FixedWidthSchema([Symbol("f", i) => (4, FWInt()) for i in 1:50]...)
+        path = tempname()
+        open(path, "w") do io
+            for i in 1:1_000
+                for j in 1:50
+                    write(io, lpad(string((i * j) % 9999), 4))
+                end
+                write(io, '\n')
+            end
+        end
+        baseline = parse_file(path, wide)
+        for nt in (2, 4, 8)
+            result = parse_file(path, wide; ntasks=nt)
+            for col_name in propertynames(result)
+                @test getproperty(result, col_name) == getproperty(baseline, col_name)
+            end
+        end
+        rm(path)
+    end
+
+    @testset "parallel with indexed path (skip_header/footer/comment)" begin
+        schema = FixedWidthSchema(
+            :name => (4, FWString()),
+            :val  => (3, FWInt()),
+        )
+        path = tempname()
+        open(path, "w") do io
+            write(io, "HDR  99\n")     # header (skipped)
+            write(io, "# cmnt \n")     # comment (filtered)
+            for i in 1:500
+                name = lpad("r$i", 4)[1:4]
+                write(io, name * lpad(string(i), 3) * "\n")
+            end
+            write(io, "# cmnt \n")     # comment mid-file
+            for i in 501:1_000
+                name = lpad("r$i", 4)[1:4]
+                write(io, name * lpad(string(i), 3) * "\n")
+            end
+            write(io, "FTR  99\n")     # footer (skipped)
+        end
+        baseline = parse_file(path, schema;
+                              skip_header=1, skip_footer=1, comment=UInt8('#'))
+        for nt in (2, 4, 8)
+            r = parse_file(path, schema;
+                          skip_header=1, skip_footer=1, comment=UInt8('#'), ntasks=nt)
+            @test r.val == baseline.val
+            @test r.name == baseline.name
+        end
+        rm(path)
+    end
+
+    @testset ":default mode with ntasks=$nt" for nt in (1, 2, 4, 8)
+        schema = FixedWidthSchema(
+            :name => (4, FWString(; default="")),
+            :val  => (3, FWInt(; default=0)),
+        )
+        path = tempname()
+        open(path, "w") do io
+            for i in 1:400
+                name = i % 7 == 0 ? "    " : lpad("r$i", 4)[1:4]   # blank every 7th
+                val  = i % 5 == 0 ? "   "  : lpad(string(i), 3)    # blank every 5th
+                write(io, name * val * "\n")
+            end
+        end
+        r = parse_file(path, schema; on_error=:default, ntasks=nt)
+        @test length(r) == 400
+        for i in 1:400
+            @test r.name[i] == (i % 7 == 0 ? "" : lpad("r$i", 4)[1:4])
+            @test r.val[i]  == (i % 5 == 0 ? 0  : i)
+        end
+        rm(path)
+    end
+
+    @testset "strict ParseError pinpoints failing line with ntasks=$nt" for nt in (2, 4, 8)
+        # Under the new row-chunk shape, errors from any task must still
+        # surface the exact record index that failed, not just "some task
+        # threw". The outer rescan+throw logic in _fill_column_strict! is
+        # responsible.
+        schema = FixedWidthSchema(
+            :name => (4, FWString()),
+            :val  => (3, FWInt()),
+        )
+        path = tempname()
+        open(path, "w") do io
+            for i in 1:50;  write(io, "aaa " * lpad(string(i), 3) * "\n"); end
+            write(io, "bad  XY\n")       # line 51 — bad int
+            for i in 52:100; write(io, "ccc " * lpad(string(i), 3) * "\n"); end
+        end
+        err = try
+            parse_file(path, schema; ntasks=nt); nothing
+        catch e
+            e
+        end
+        @test err isa ParseError
+        @test err.line == 51
+        rm(path)
+    end
 end
