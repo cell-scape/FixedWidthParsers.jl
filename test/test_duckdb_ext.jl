@@ -242,4 +242,97 @@ using Dates
         DBInterface.close!(con)
         rm(path)
     end
+
+    @testset "nworkers > 1: concurrent inserts from separate connections" begin
+        schema = FixedWidthSchema(
+            :name => (4, FWString()),
+            :val  => (5, FWInt()),
+        )
+        n = 5_000
+        path = tempname()
+        open(path, "w") do io
+            for i in 1:n
+                nm = lpad("r$i", 4)[1:4]
+                write(io, nm, lpad(string(i), 5), '\n')
+            end
+        end
+
+        for nw in (2, 4, 8)
+            con = DBInterface.connect(DuckDB.DB, ":memory:")
+            to_duckdb(con, "t", path, schema;
+                nworkers = nw, chunk_size = 500, replace_table = true)
+            row = sql(con, "SELECT COUNT(*) AS c, SUM(val) AS s FROM t")[1]
+            @test row.c == n
+            @test row.s == sum(1:n)
+            DBInterface.close!(con)
+        end
+        rm(path)
+    end
+
+    @testset "nworkers with strict-mode error still pinpoints the line" begin
+        schema = FixedWidthSchema(
+            :name => (4, FWString()),
+            :val  => (3, FWInt()),
+        )
+        # 100 records with a bad int at line 47
+        path = tempname()
+        open(path, "w") do io
+            for i in 1:100
+                v = i == 47 ? "XXX" : lpad(string(i), 3)
+                write(io, lpad("r$i", 4)[1:4], v, '\n')
+            end
+        end
+        con = DBInterface.connect(DuckDB.DB, ":memory:")
+        err = try
+            to_duckdb(con, "t", path, schema; nworkers = 4, chunk_size = 20)
+            nothing
+        catch e
+            e
+        end
+        @test err isa ParseError
+        @test err.line == 47
+        DBInterface.close!(con)
+        rm(path)
+    end
+
+    @testset "nworkers with lenient mode" begin
+        schema = FixedWidthSchema(
+            :name => (4, FWString()),
+            :val  => (3, FWInt()),
+        )
+        path = write_file([
+            "foo  10", "bar abc", "baz  30", "qux def", "aaa  50", "bbb  60",
+            "ccc  70", "ddd xyz", "eee  90", "fff 100",
+        ])
+        con = DBInterface.connect(DuckDB.DB, ":memory:")
+        to_duckdb(con, "t", path, schema; nworkers = 4, on_error = :lenient, chunk_size = 3)
+
+        null_count = sql(con, "SELECT COUNT(*) AS c FROM t WHERE val IS NULL")[1].c
+        @test null_count == 3
+        @test sql(con, "SELECT COUNT(*) AS c FROM t")[1].c == 10
+        DBInterface.close!(con)
+        rm(path)
+    end
+
+    @testset "nworkers > 1 with a Connection (not DB) errors cleanly" begin
+        schema = FixedWidthSchema(:v => (3, FWInt()))
+        path = write_file(["  1", "  2"])
+        db = DBInterface.connect(DuckDB.DB, ":memory:")
+        con = DBInterface.connect(db)
+        @test con isa DuckDB.Connection
+
+        DBInterface.execute(con, "CREATE TABLE t (v BIGINT)")
+        err = try
+            to_duckdb(con, "t", path, schema;
+                nworkers = 4, create_table = false)
+            nothing
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        @test occursin("DuckDB.DB", err.msg)
+        DBInterface.close!(con)
+        DBInterface.close!(db)
+        rm(path)
+    end
 end
