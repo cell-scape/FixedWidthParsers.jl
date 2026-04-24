@@ -1,6 +1,10 @@
 [deps]
+DBInterface = "a10d1c49-ce27-4219-8d33-6db1a4562965"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+DuckDB = "d2f5444f-75bc-4fdf-ac35-56f514c445e1"
 FixedWidthParsers = "394be9c0-75bc-4ced-998b-f5a708a320e8"
 
 [compat]
+DBInterface = "2"
 Documenter = "1"
+DuckDB = "1"

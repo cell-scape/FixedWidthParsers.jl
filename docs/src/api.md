@@ -1,42 +1,37 @@
 # API Reference
 
-## Field Types
+## Field types
 
 ```@docs
 FWString
 FWInt
 FWFloat
-FWDate
+FWFixedPoint
 FWBool
+FWDate
 FWTime
 FWDateTime
 FWCustom
-FWFixedPoint
 FWSkip
 Skip
 ```
 
-## Schema
+## Schemas
 
 ```@docs
 FixedWidthSchema
 @fixedwidth
 schema
+MultiRecordSchema
 ```
 
-## Schema Loading
+## Loading schemas from files
 
 ```@docs
 load_schema
 ```
 
-## Multi-Record Schemas
-
-```@docs
-MultiRecordSchema
-```
-
-## Bundled Schemas
+## Bundled schemas
 
 ```@docs
 SSIM_SCHEMA
@@ -52,9 +47,17 @@ SEATS_SCHEMA
 
 ```@docs
 parse_file
+parse_string
+parse_bytes
 parse_record
 parse_field
 eachrecord
+```
+
+## DuckDB integration
+
+```@docs
+to_duckdb
 ```
 
 ## Errors
