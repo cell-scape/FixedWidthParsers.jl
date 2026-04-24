@@ -32,4 +32,5 @@ using StructArrays
     include("test_discriminator_robustness.jl")
     include("test_bundled_schemas.jl")
     include("test_parse_string.jl")
+    include("test_duckdb_ext.jl")
 end

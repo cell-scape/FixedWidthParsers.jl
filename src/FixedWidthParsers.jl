@@ -26,4 +26,16 @@ export SSIM_SCHEMA
 export AIRCRAFT_SCHEMA, AIRPORT_SCHEMA, MCT_SCHEMA, MCT_PRIORITY_SCHEMA
 export REGIONAL_SCHEMA, SEATS_SCHEMA
 
+"""
+    to_duckdb(con, table_name, source, schema; kwargs...)
+
+Stream-parse a fixed-width file/IO into a DuckDB table without materializing
+the whole file in memory. Method is provided by the `DuckDBExt` package
+extension — `using DuckDB` must be active for this function to dispatch.
+
+See the `DuckDBExt` module for the full keyword-argument list.
+"""
+function to_duckdb end
+export to_duckdb
+
 end # module
